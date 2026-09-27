@@ -38,11 +38,11 @@ export function SignInScreen() {
       {!hasClientId && <p className="error-text">Google sign-in is not set up in this build.</p>}
       {import.meta.env.DEV && (
         <div className="row-actions">
-          <button type="button" className="btn" onClick={() => devSignIn('Maanya')}>
-            Test user: Maanya
+          <button type="button" className="btn" onClick={() => devSignIn('Tester A')}>
+            Test user A (local only)
           </button>
-          <button type="button" className="btn" onClick={() => devSignIn('Maanvi')}>
-            Test user: Maanvi
+          <button type="button" className="btn" onClick={() => devSignIn('Tester B')}>
+            Test user B (local only)
           </button>
         </div>
       )}
