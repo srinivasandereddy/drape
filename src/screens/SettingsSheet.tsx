@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Sheet } from '../components/Sheet'
 import { HowItWorksSheet } from './HowItWorksSheet'
 import { useToast } from '../components/toastContext'
-import { reconnect, removeAccountFromPhone, signOutAccount, useAccount } from '../lib/account'
+import { deleteDrapeAccount, reconnect, removeAccountFromPhone, resetProfile, signOutAccount, useAccount } from '../lib/account'
 import { deleteEverything, removeSamples, useCloset } from '../lib/closet'
 import { storageEstimate } from '../lib/db'
 import { doshaLabel } from '../lib/dosha'
@@ -22,7 +22,9 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
   const [storage, setStorage] = useState<{ usedMb: number; quotaMb: number } | null>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
-  const [confirm, setConfirm] = useState<'wipe' | 'remove' | null>(null)
+  const [confirm, setConfirm] = useState<'profile' | 'wipe' | 'remove' | 'account' | null>(null)
+  const [typed, setTyped] = useState('')
+  const [progress, setProgress] = useState<string | null>(null)
   const [howOpen, setHowOpen] = useState(false)
   const samples = garments.filter((g) => g.source === 'sample').length
 
@@ -172,12 +174,84 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
           <h2 id="s-danger">Start over</h2>
           {confirm === null && (
             <div className="stack-sm">
+              <button type="button" className="btn danger-ghost" onClick={() => setConfirm('profile')}>
+                Reset my profile
+              </button>
               <button type="button" className="btn danger-ghost" onClick={() => setConfirm('wipe')} disabled={garments.length === 0}>
                 Delete my whole closet
               </button>
               <button type="button" className="btn danger-ghost" onClick={() => setConfirm('remove')}>
                 Remove my account from this phone
               </button>
+              <button
+                type="button"
+                className="btn danger-ghost"
+                onClick={() => {
+                  setTyped('')
+                  setConfirm('account')
+                }}
+              >
+                Delete my Drape account
+              </button>
+            </div>
+          )}
+          {confirm === 'profile' && (
+            <div className="confirm" role="alert">
+              <p>Clear your name, age, gender, height, weight, city, routine, styles, metal, dosha result and app colors? Your clothes, trips and history stay. The setup wizard will start again, and the reset reaches your other phones too.</p>
+              <div className="row-actions">
+                <button type="button" className="btn" onClick={() => setConfirm(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn danger"
+                  disabled={busy}
+                  onClick={() =>
+                    void run('Reset', async () => {
+                      await resetProfile()
+                      setConfirm(null)
+                      onClose()
+                      toast('Profile reset')
+                    })
+                  }
+                >
+                  Reset profile
+                </button>
+              </div>
+            </div>
+          )}
+          {confirm === 'account' && (
+            <div className="confirm" role="alert">
+              <p>
+                <b>This permanently deletes everything</b>: your profile, all pieces and photos, trips, outfit history and feedback, from this phone and from
+                your Google Drive backup. Drape is also disconnected from your Google account and you are signed out. This cannot be undone.
+              </p>
+              <p className="small">Other phones keep what they have until you remove Drape there (Settings → Remove my account from this phone).</p>
+              <label className="field-label" htmlFor="confirm-delete">
+                Type <b>delete</b> to confirm
+              </label>
+              <input id="confirm-delete" className="text-input" value={typed} autoComplete="off" autoCapitalize="none" onChange={(e) => setTyped(e.target.value)} />
+              {progress && <p className="small">{progress}</p>}
+              <div className="row-actions">
+                <button type="button" className="btn" disabled={busy} onClick={() => setConfirm(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn danger"
+                  disabled={busy || typed.trim().toLowerCase() !== 'delete'}
+                  onClick={() =>
+                    void run('Delete account', async () => {
+                      setProgress('Deleting your Drive backup…')
+                      await deleteDrapeAccount((done, total) => setProgress(`Deleting your Drive backup… ${done} of ${total}`))
+                      setProgress(null)
+                      onClose()
+                    }).finally(() => setProgress(null))
+                  }
+                >
+                  Delete forever
+                </button>
+              </div>
             </div>
           )}
           {confirm === 'wipe' && (

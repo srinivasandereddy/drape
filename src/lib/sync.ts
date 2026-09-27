@@ -247,3 +247,15 @@ export async function syncOnce(remote: Remote, onProgress?: (done: number, total
 
   return result
 }
+
+/** Deletes every file in Drape's Drive folder (for "Delete my Drape account"). Returns how many. */
+export async function wipeRemote(remote: Remote, onProgress?: (done: number, total: number) => void): Promise<number> {
+  const files = await remote.list()
+  let done = 0
+  onProgress?.(0, files.length)
+  await pool(files, 4, async (f) => {
+    await remote.remove(f.id)
+    onProgress?.(++done, files.length)
+  })
+  return files.length
+}

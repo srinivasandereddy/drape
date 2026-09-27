@@ -4,9 +4,11 @@
 import { useSyncExternalStore } from 'react'
 import { resetClosetStore } from './closet'
 import { closeDb, deleteAccountDb, selectAccountDb } from './db'
-import { fetchUser, signIn, signOut as driveSignOut, type GoogleUser } from './drive'
+import { driveRemote, fetchUser, hasDriveAccess, isSignedIn, signIn, signOut as driveSignOut, type GoogleUser } from './drive'
 import { prefs } from './platform'
-import { resetProfileStore } from './profile'
+import { EMPTY_PROFILE, resetProfileStore, saveProfile } from './profile'
+import { wipeRemote } from './sync'
+import { startSync } from './syncStore'
 import { resetTripsStore } from './trips'
 
 export type Account = GoogleUser
@@ -105,4 +107,29 @@ export function devSignIn(name: string) {
   if (!import.meta.env.DEV) throw new Error('Test sign-in only exists in development.')
   const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '')
   switchTo({ sub: `dev-${slug}`, email: `${slug}@example.test`, name, picture: null })
+}
+
+/** Clears the profile (name, body details, styles, dosha…) but keeps the clothes. Syncs to other phones. */
+export async function resetProfile(): Promise<void> {
+  await saveProfile({ ...EMPTY_PROFILE, onboarded: false })
+}
+
+/**
+ * Permanently deletes the person's Drape data everywhere: their Drive folder,
+ * this phone, and Drape's access to their Google account. Other phones keep
+ * whatever they have until the person removes the app there too.
+ */
+export async function deleteDrapeAccount(onProgress?: (done: number, total: number) => void): Promise<void> {
+  const me = current
+  if (!me) throw new Error('Nobody is signed in.')
+  if (!isSignedIn()) await reconnect()
+  if (!hasDriveAccess()) throw new Error('Drape needs Drive access to delete your backup. Sign out and in again, keeping the Drive box ticked.')
+  // Stop syncing first, so nothing is uploaded again while deleting.
+  startSync(null)
+  await wipeRemote(driveRemote, onProgress)
+  driveSignOut() // also revokes Drape's access to the Google account
+  closeDb()
+  switchTo(null)
+  await deleteAccountDb(me.sub)
+  for (const k of ['today', 'occasion', 'lastSync']) prefs.remove(`${me.sub}.${k}`)
 }

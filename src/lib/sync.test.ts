@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getDb, selectAccountDb } from './db'
 import { createGarment, emptyDraft, markDeleted, markWorn, type Garment } from './model'
-import { parseName, syncOnce, type Remote, type RemoteFile } from './sync'
+import { parseName, syncOnce, wipeRemote, type Remote, type RemoteFile } from './sync'
 
 /** An in-memory stand-in for the Drive folder, shared by the two "phones". */
 class FakeDrive implements Remote {
@@ -177,6 +177,19 @@ describe('sync between two phones through Drive', () => {
       expect(await p!.thumb.text()).toBe('cutout-thumb')
       expect(p!.rev).toBe(2)
     })
+  })
+
+  it('deleting the account empties the Drive folder', async () => {
+    await onPhone('A', async () => {
+      await put(shirt('Blue shirt', 1))
+      await (await getDb()).put('meta', { key: 'profile', value: { name: 'Sam' }, updatedAt: at(2).toISOString() })
+      await syncOnce(drive)
+    })
+    expect(drive.files.size).toBe(4)
+    const progress: number[] = []
+    expect(await wipeRemote(drive, (done) => progress.push(done))).toBe(4)
+    expect(drive.files.size).toBe(0)
+    expect(progress.at(-1)).toBe(4)
   })
 
   it('cleans up duplicate files from two phones uploading at once', async () => {
