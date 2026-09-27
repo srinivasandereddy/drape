@@ -1,6 +1,7 @@
 import { Palette, Plus, Settings, Shirt, Sun } from 'lucide-react'
 import { useCallback, useState, type ReactNode } from 'react'
 import { InstallBanner } from './components/InstallBanner'
+import { UpdateBanner } from './components/UpdateBanner'
 import { prefs } from './lib/platform'
 import { AddSheet } from './screens/AddSheet'
 import { ClosetScreen } from './screens/ClosetScreen'
@@ -41,6 +42,7 @@ export default function App() {
       </header>
 
       <main className="content">
+        <UpdateBanner />
         <InstallBanner />
         {tab === 'today' && <TodayScreen onAdd={openAdd} />}
         {tab === 'closet' && <ClosetScreen onOpen={setOpenId} onAdd={openAdd} />}
