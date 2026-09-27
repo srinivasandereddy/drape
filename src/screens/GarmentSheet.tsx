@@ -6,12 +6,13 @@ import { PieceImage } from '../components/PieceImage'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
 import { FABRIC_LABELS, FORMALITY_LABELS, METAL_LABELS, PATTERN_LABELS, SEASON_LABELS, WARMTH_LABELS, categoryDef } from '../lib/catalog'
-import { deleteGarment, editGarment, getPhoto, setGarmentPhoto, useCloset, wearGarment } from '../lib/closet'
+import { deleteGarment, editGarment, getPhoto, setGarmentPhoto, setPrice, setStatus, useCloset, wearGarment } from '../lib/closet'
 import { cutOut } from '../lib/cutout'
 import { extractColorsFromBlob } from '../lib/color'
 import { PhotoError, processPhoto } from '../lib/image'
 import { styleDef } from '../lib/styles'
-import { displayName, draftFromGarment, validateDraft, type Garment, type GarmentDraft } from '../lib/model'
+import { displayName, draftFromGarment, STATUS_LABELS, validateDraft, type Garment, type GarmentDraft, type GarmentStatus } from '../lib/model'
+import { money, useProfile } from '../lib/profile'
 import { pieceLabel } from '../lib/outfit'
 import { matchesFor } from '../lib/spectrum'
 
@@ -165,6 +166,27 @@ export function GarmentSheet({ id, onClose, onOpen }: { id: string; onClose: () 
           </button>
         </div>
 
+        <div className="field" role="group" aria-label="Where is it?">
+          <div className="field-label">Where is it?</div>
+          <div className="chips">
+            {(garment.status === 'wishlist' ? (['wishlist', 'available'] as GarmentStatus[]) : (['available', 'laundry', 'lent', 'tailor', 'retired'] as GarmentStatus[])).map((st) => (
+              <button
+                key={st}
+                type="button"
+                className={garment.status === st ? 'chip on' : 'chip'}
+                aria-pressed={garment.status === st}
+                disabled={busy}
+                onClick={() => void run(() => setStatus(garment.id, st), st === 'available' ? (garment.status === 'wishlist' ? 'Added to your closet' : 'Back in your closet') : STATUS_LABELS[st])}
+              >
+                {st === 'available' && garment.status === 'wishlist' ? 'I bought it' : STATUS_LABELS[st]}
+              </button>
+            ))}
+          </div>
+          {garment.status !== 'available' && garment.status !== 'wishlist' && <p className="muted small">Drape won't suggest it until it's back in your closet.</p>}
+        </div>
+
+        <PriceField garment={garment} onSave={(price) => void run(() => setPrice(garment.id, price), 'Price saved')} />
+
         <dl className="details">
           {details(garment).map(([k, v]) => (
             <div key={k}>
@@ -208,5 +230,31 @@ export function GarmentSheet({ id, onClose, onOpen }: { id: string; onClose: () 
         )}
       </div>
     </Sheet>
+  )
+}
+
+/** Price paid, and what each wear has cost so far. */
+function PriceField({ garment, onSave }: { garment: Garment; onSave: (price: number | null) => void }) {
+  const { profile } = useProfile()
+  const [value, setValue] = useState(garment.price === null ? '' : String(garment.price))
+  const cpw = garment.price !== null ? garment.price / Math.max(1, garment.wornCount) : null
+  const commit = () => {
+    const n = value.trim() === '' ? null : Number(value)
+    if (n !== null && (!Number.isFinite(n) || n < 0)) return
+    if (n !== garment.price) onSave(n)
+  }
+  return (
+    <div className="field">
+      <label className="field-label" htmlFor={`price-${garment.id}`}>
+        Price paid <span className="field-hint">· optional, for cost per wear</span>
+      </label>
+      <input id={`price-${garment.id}`} className="text-input" type="number" inputMode="numeric" min={0} value={value} onChange={(e) => setValue(e.target.value)} onBlur={commit} />
+      {cpw !== null && (
+        <p className="muted small">
+          Cost per wear: <b>{money(profile, cpw)}</b>
+          {garment.wornCount === 0 ? ' (not worn yet)' : ` over ${garment.wornCount} wear${garment.wornCount === 1 ? '' : 's'}`}
+        </p>
+      )}
+    </div>
   )
 }

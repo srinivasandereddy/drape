@@ -50,8 +50,8 @@ export function useTrips(): State {
   return snap
 }
 
-export async function addTrip(draft: TripDraft): Promise<Trip> {
-  const trip = createTrip(draft)
+export async function addTrip(draft: TripDraft, extra: Partial<Pick<Trip, 'kind' | 'title' | 'theme'>> = {}): Promise<Trip> {
+  const trip = { ...createTrip(draft), ...extra }
   const db = await getDb()
   await db.put('trips', trip)
   await load()

@@ -1,5 +1,5 @@
 import { Cloud, CloudAlert, CloudCheck, CloudOff, RefreshCw } from 'lucide-react'
-import { reconnect } from '../lib/account'
+import { allowDrive, reconnect } from '../lib/account'
 import { syncNow, useSync } from '../lib/syncStore'
 import { useToast } from './toastContext'
 
@@ -12,6 +12,8 @@ export function SyncBadge({ onOpenSettings }: { onOpenSettings: () => void }) {
       ? `Syncing${s.total ? ` ${s.done} of ${s.total}` : ''}`
       : s.status === 'paused'
         ? 'Sync paused: tap to reconnect'
+        : s.status === 'needs-drive'
+          ? 'Tap to allow Drive backup'
         : s.status === 'offline'
           ? 'Offline: changes will sync later'
           : s.status === 'error'
@@ -19,10 +21,18 @@ export function SyncBadge({ onOpenSettings }: { onOpenSettings: () => void }) {
             : s.lastSyncAt
               ? 'Synced with Google Drive'
               : 'Not synced yet'
-  const Icon = s.status === 'syncing' ? RefreshCw : s.status === 'paused' ? Cloud : s.status === 'offline' ? CloudOff : s.status === 'error' ? CloudAlert : CloudCheck
+  const Icon = s.status === 'syncing' ? RefreshCw : s.status === 'paused' || s.status === 'needs-drive' ? Cloud : s.status === 'offline' ? CloudOff : s.status === 'error' ? CloudAlert : CloudCheck
 
   async function tap() {
-    if (s.status === 'paused') {
+    if (s.status === 'needs-drive') {
+      try {
+        await allowDrive()
+        await syncNow()
+        toast('Drive backup is on. Your closet is syncing.')
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'Drive access was not given.', 'error')
+      }
+    } else if (s.status === 'paused') {
       try {
         await reconnect()
         await syncNow()
@@ -36,7 +46,7 @@ export function SyncBadge({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
     <button type="button" className={`sync-badge ${s.status}`} aria-label={label} title={label} onClick={() => void tap()}>
       <Icon size={20} aria-hidden="true" className={s.status === 'syncing' ? 'spin' : ''} />
-      {s.status === 'paused' && <span className="sync-dot" aria-hidden="true" />}
+      {(s.status === 'paused' || s.status === 'needs-drive') && <span className="sync-dot" aria-hidden="true" />}
     </button>
   )
 }

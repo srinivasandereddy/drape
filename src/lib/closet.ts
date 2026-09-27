@@ -18,6 +18,7 @@ import {
   type GarmentColor,
   type GarmentDraft,
   type GarmentSource,
+  type GarmentStatus,
 } from './model'
 
 export interface ClosetState {
@@ -95,7 +96,7 @@ export function resetClosetStore() {
 }
 
 /** Adds several pieces without photos (typed lists, sample wardrobe) in one go. */
-export function addGarments(drafts: GarmentDraft[], source: GarmentSource, extra: Partial<Pick<Garment, 'link'>> = {}): Promise<Garment[]> {
+export function addGarments(drafts: GarmentDraft[], source: GarmentSource, extra: Partial<Pick<Garment, 'link' | 'status' | 'price'>> = {}): Promise<Garment[]> {
   return write(async () => {
     const now = Date.now()
     const garments = drafts.map((d, i) => ({ ...createGarment(d, null, new Date(now + i), undefined, source), ...extra }))
@@ -161,7 +162,7 @@ export async function listFeedback(): Promise<FeedbackRecord[]> {
   }
 }
 
-export function addGarment(draft: GarmentDraft, photo: ProcessedPhoto, extra: Partial<Pick<Garment, 'link' | 'bgRemoved'>> = {}): Promise<Garment> {
+export function addGarment(draft: GarmentDraft, photo: ProcessedPhoto, extra: Partial<Pick<Garment, 'link' | 'bgRemoved' | 'status' | 'price'>> = {}): Promise<Garment> {
   return write(async () => {
     const garment = { ...createGarment(draft, { width: photo.width, height: photo.height }), ...extra }
     const db = await getDb()
@@ -191,6 +192,34 @@ export function editGarment(id: string, draft: GarmentDraft): Promise<Garment> {
   return write(() => updateStored(id, (g) => applyDraft(g, draft)))
 }
 
+export function setStatus(id: string, status: GarmentStatus): Promise<Garment> {
+  return write(() =>
+    updateStored(id, (g) => {
+      const at = new Date().toISOString()
+      return { ...g, status, statusSince: at, updatedAt: at }
+    }),
+  )
+}
+
+/** Moves several pieces to one status at once (e.g. everything back from the wash). */
+export function setStatusMany(ids: string[], status: GarmentStatus): Promise<void> {
+  return write(async () => {
+    const db = await getDb()
+    const tx = db.transaction('garments', 'readwrite')
+    const at = new Date().toISOString()
+    for (const id of ids) {
+      const g = normalizeGarment(await tx.store.get(id))
+      if (g && !g.deletedAt) await tx.store.put({ ...g, status, statusSince: at, updatedAt: at })
+    }
+    await tx.done
+  })
+}
+
+/** Sets the price paid (null clears it). */
+export function setPrice(id: string, price: number | null): Promise<Garment> {
+  return write(() => updateStored(id, (g) => ({ ...g, price: price === null ? null : Math.max(0, Math.round(price)), updatedAt: new Date().toISOString() })))
+}
+
 export function wearGarment(id: string): Promise<Garment> {
   return write(() => updateStored(id, (g) => markWorn(g)))
 }
@@ -198,12 +227,16 @@ export function wearGarment(id: string): Promise<Garment> {
 const localDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
-/** Marks every piece as worn today and keeps a record of the outfit. */
-export function wearOutfit(garmentIds: string[], occasion: string): Promise<OutfitRecord> {
+/** Marks every piece as worn today and keeps a record of the outfit. A plan for today becomes the record. */
+export function wearOutfit(garmentIds: string[], occasion: string, planId?: string): Promise<OutfitRecord> {
   return write(async () => {
     const now = new Date()
     const db = await getDb()
     const tx = db.transaction(['garments', 'outfits'], 'readwrite')
+    if (planId) {
+      const plan = await tx.objectStore('outfits').get(planId)
+      if (plan && !plan.deletedAt) await tx.objectStore('outfits').put({ ...plan, deletedAt: now.toISOString() })
+    }
     const garments = tx.objectStore('garments')
     const worn: string[] = []
     for (const id of new Set(garmentIds)) {
@@ -223,10 +256,51 @@ export async function todaysOutfit(): Promise<OutfitRecord | null> {
   try {
     const db = await getDb()
     const list = await db.getAllFromIndex('outfits', 'by-date', localDate(new Date()))
-    return list.filter((o) => !o.deletedAt).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0] ?? null
+    return list.filter((o) => !o.deletedAt && !o.planned).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0] ?? null
   } catch {
     return null
   }
+}
+
+/** A plan for today, if the person made one. */
+export async function todaysPlan(): Promise<OutfitRecord | null> {
+  try {
+    const db = await getDb()
+    const list = await db.getAllFromIndex('outfits', 'by-date', localDate(new Date()))
+    return list.find((o) => !o.deletedAt && o.planned) ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Every worn and planned outfit, newest first. */
+export async function listOutfits(): Promise<OutfitRecord[]> {
+  try {
+    const db = await getDb()
+    return (await db.getAll('outfits')).filter((o) => !o.deletedAt).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.createdAt < b.createdAt ? 1 : -1))
+  } catch {
+    return []
+  }
+}
+
+/** Saves an outfit plan for a date (YYYY-MM-DD). One plan per day: a new one replaces the old. */
+export async function planOutfit(date: string, garmentIds: string[], occasion: string, note = ''): Promise<OutfitRecord> {
+  const now = new Date()
+  const db = await getDb()
+  const tx = db.transaction('outfits', 'readwrite')
+  for (const o of await tx.store.index('by-date').getAll(date)) if (o.planned && !o.deletedAt) await tx.store.put({ ...o, deletedAt: now.toISOString() })
+  const record: OutfitRecord = { id: newId(now.getTime()), date, garmentIds, occasion, createdAt: now.toISOString(), deletedAt: null, planned: true, note: note.slice(0, 60) }
+  await tx.store.put(record)
+  await tx.done
+  markChanged()
+  return record
+}
+
+export async function removeOutfit(id: string): Promise<void> {
+  const db = await getDb()
+  const o = await db.get('outfits', id)
+  if (o && !o.deletedAt) await db.put('outfits', { ...o, deletedAt: new Date().toISOString() })
+  markChanged()
 }
 
 /** Keeps a "deleted" marker for sync, and frees the photo space right away. */

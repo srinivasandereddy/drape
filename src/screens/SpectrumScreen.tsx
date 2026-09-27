@@ -3,10 +3,13 @@ import { ThumbRow } from '../components/ThumbRow'
 import { useCloset } from '../lib/closet'
 import { dominantHex } from '../lib/model'
 import { bucketOf, HUE_BUCKETS, NEUTRAL_BUCKET, spectrumStats } from '../lib/spectrum'
+import { inCloset } from '../lib/model'
 import { ColorMatcher } from './ColorMatcher'
+import { WearStats } from './WearStats'
 
 export function SpectrumScreen({ onOpen }: { onOpen: (id: string) => void }) {
-  const { garments, scan } = useCloset()
+  const { garments: all, scan } = useCloset()
+  const garments = useMemo(() => all.filter(inCloset), [all])
   const stats = useMemo(() => spectrumStats(garments), [garments])
   const [bucket, setBucket] = useState<number | null>(null)
   const max = Math.max(...stats.buckets, 0.0001)
@@ -15,11 +18,13 @@ export function SpectrumScreen({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <section className="screen" aria-labelledby="spectrum-title">
       <div className="screen-head">
-        <h1 id="spectrum-title">Your spectrum</h1>
+        <h1 id="spectrum-title">Insights</h1>
         <p className="muted">
           {stats.withColors} of {stats.total} pieces read
         </p>
       </div>
+
+      <WearStats garments={all} onOpen={onOpen} />
 
       {scan && (
         <div className="notice" role="status">

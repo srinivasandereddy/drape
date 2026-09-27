@@ -1,11 +1,15 @@
-import { Check, CloudRain, Droplets, Heart, MapPin, RefreshCw, Repeat, Shuffle, Sparkles, Sun, Thermometer, ThumbsDown, Wind } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { CalendarCheck2, Check, CloudRain, Droplets, Heart, MapPin, RefreshCw, Repeat, Share2, Shuffle, Sparkles, Sun, Thermometer, ThumbsDown, WashingMachine, Wind } from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react'
 import { ChoiceChips } from '../components/Chips'
 import { PieceImage } from '../components/PieceImage'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
 import { accountPrefs } from '../lib/account'
-import { listFeedback, saveFeedback, todaysOutfit, useCloset, wearOutfit } from '../lib/closet'
+import { listFeedback, listOutfits, saveFeedback, setStatusMany, todaysOutfit, todaysPlan, useCloset, wearOutfit } from '../lib/closet'
+import type { OutfitRecord } from '../lib/db'
+import { eventTemplate } from '../lib/events'
+import { renderOutfitImage, shareImage } from '../lib/share'
+import { daysUntil, useUpcomingEvent } from '../lib/upcoming'
 import { colorName } from '../lib/color'
 import { applyDislike, learnAffinity, NO_ADJUST, type Affinity, type DayAdjust, type DislikeReason } from '../lib/feedback'
 import { parseIntent } from '../lib/intent'
@@ -23,7 +27,7 @@ import {
   type OutfitContext,
 } from '../lib/outfit'
 import { colorsInText } from '../lib/parser'
-import { useProfile } from '../lib/profile'
+import { personalPrefs, preferredMetal, useProfile } from '../lib/profile'
 import { loadSampleWardrobe } from '../lib/sampleLoader'
 import { parseStyles, styleDef, type StyleId } from '../lib/styles'
 import { FEELING_LABELS, THERMAL_LABELS, type Feeling } from '../lib/thermal'
@@ -71,9 +75,9 @@ function loadDay(): DayState {
   }
 }
 
-type Props = { onAdd: () => void; onQuickAdd: () => void; onEditProfile: () => void }
+type Props = { onAdd: () => void; onQuickAdd: () => void; onEditProfile: () => void; onOpenPlans: (view: 'calendar' | 'events') => void }
 
-export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
+export function TodayScreen({ onAdd, onQuickAdd, onEditProfile, onOpenPlans }: Props) {
   const toast = useToast()
   const ids = { where: useId(), vibe: useId() }
   const { garments, status } = useCloset()
@@ -125,8 +129,9 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
   const refreshAffinity = () => setFeedbackTick((t) => t + 1)
   useEffect(() => {
     let cancelled = false
-    void listFeedback().then((records) => {
-      if (!cancelled) setAffinity(learnAffinity(records, new Map(garments.map((g) => [g.id, g]))))
+    // What you loved or disliked, plus what you actually wore (and when).
+    void Promise.all([listFeedback(), listOutfits()]).then(([records, worn]) => {
+      if (!cancelled) setAffinity(learnAffinity(records, new Map(garments.map((g) => [g.id, g])), worn))
     })
     return () => {
       cancelled = true
@@ -136,16 +141,21 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
   // ----- today's logged outfit -----
   const [now] = useState(() => new Date())
   const [wornIds, setWornIds] = useState<string[] | null>(null)
+  const [plan, setPlan] = useState<OutfitRecord | null>(null)
   const [showIdeas, setShowIdeas] = useState(false)
   useEffect(() => {
     let cancelled = false
-    void todaysOutfit().then((o) => {
-      if (!cancelled) setWornIds(o?.garmentIds ?? null)
+    void Promise.all([todaysOutfit(), todaysPlan()]).then(([o, p]) => {
+      if (cancelled) return
+      setWornIds(o?.garmentIds ?? null)
+      setPlan(p)
     })
     return () => {
       cancelled = true
     }
   }, [])
+  const upcoming = useUpcomingEvent()
+  const inWash = garments.filter((g) => g.status === 'laundry')
 
   const ctx: OutfitContext = useMemo(
     () => ({
@@ -157,7 +167,8 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
       dosha: profile.dosha?.primary ?? null,
       styles: vibeStyles.length ? vibeStyles : defaultStyles(occasion, profile.styles),
       wishColors,
-      metal: profile.metal.kind,
+      metal: preferredMetal(profile),
+      personal: personalPrefs(profile),
       affinity,
       adjust: day.adjust,
       formalityShift: intent.formalityShift,
@@ -169,7 +180,14 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
   const [index, setIndex] = useState(0)
   const [custom, setCustom] = useState<Outfit | null>(null)
   const outfits = useMemo(() => suggestOutfits(garments, ctx), [garments, ctx])
-  const suggestion = custom ?? (outfits.length ? outfits[index % outfits.length]! : null)
+  // A plan made for today comes first, until the person shuffles past it.
+  const planned = useMemo(() => {
+    if (!plan) return null
+    const pieces = plan.garmentIds.map((id) => garments.find((g) => g.id === id)).filter((g): g is Garment => !!g)
+    return pieces.length ? scoreOutfit(pieces, ctx) : null
+  }, [plan, garments, ctx])
+  const showPlan = planned && !custom && index === 0
+  const suggestion = custom ?? (showPlan ? planned : outfits.length ? outfits[(plan ? index - 1 : index) % outfits.length] ?? outfits[0]! : null)
   const worn = useMemo(() => {
     if (!wornIds) return null
     const pieces = wornIds.map((id) => garments.find((g) => g.id === id)).filter((g): g is Garment => !!g)
@@ -183,6 +201,8 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
   const [swapFor, setSwapFor] = useState<Garment | null>(null)
   const [disliking, setDisliking] = useState(false)
   const [scoreOpen, setScoreOpen] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const shareSvg = useRef<HTMLDivElement>(null)
   const [howOpen, setHowOpen] = useState(false)
   const [view, setViewState] = useState<'pieces' | 'mannequin'>(() => (prefs.get('outfitView') === 'mannequin' ? 'mannequin' : 'pieces'))
   const setView = (v: 'pieces' | 'mannequin') => {
@@ -200,7 +220,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
     if (!outfit || busy) return
     setBusy(true)
     try {
-      const rec = await wearOutfit(outfit.pieces.map((p) => p.id), occasion)
+      const rec = await wearOutfit(outfit.pieces.map((p) => p.id), occasion, showPlan ? plan?.id : undefined)
       setWornIds(rec.garmentIds)
       setShowIdeas(false)
       setCustom(null)
@@ -261,9 +281,29 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
       {loaded && !profile.onboarded && (
         <div className="card stack-sm">
           <h2>Make it yours</h2>
-          <p className="muted small">Five quick steps: about you, your days, your style, body comfort and your look. Suggestions get much better.</p>
+          <p className="muted small">A few quick steps: about you, your coloring and body shape, your days, style and colors. Skip anything; suggestions get much more personal.</p>
           <button type="button" className="btn primary" onClick={onEditProfile}>
             Set up my profile
+          </button>
+        </div>
+      )}
+
+      {upcoming && (
+        <button type="button" className="notice-btn event-banner" onClick={() => onOpenPlans('events')}>
+          <Sparkles size={16} aria-hidden="true" />
+          <span>
+            <b>{upcoming.title || eventTemplate(upcoming.theme)?.label}</b> {daysUntil(upcoming.start) === 0 ? 'is today' : `in ${daysUntil(upcoming.start)} day${daysUntil(upcoming.start) === 1 ? '' : 's'}`}. See your outfit
+          </span>
+        </button>
+      )}
+
+      {inWash.length > 0 && (
+        <div className="notice small">
+          <div>
+            <WashingMachine size={16} aria-hidden="true" /> {inWash.length} piece{inWash.length === 1 ? ' is' : 's are'} in the wash and left out of today's ideas.
+          </div>
+          <button type="button" className="btn small" onClick={() => void setStatusMany(inWash.map((g) => g.id), 'available')}>
+            Back now
           </button>
         </div>
       )}
@@ -393,13 +433,22 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
                 {outfit.harmony.label} · {outfit.score} <span aria-hidden="true">ⓘ</span>
               </button>
             )}
-            {showingWorn ? (
-              <span className="muted small">
-                <Check size={14} aria-hidden="true" /> Wearing today
-              </span>
-            ) : (
-              !custom && outfits.length > 1 && <span className="muted small mono">{(index % outfits.length) + 1} of {outfits.length}</span>
-            )}
+            <span className="outfit-head-right">
+              {showingWorn ? (
+                <span className="muted small">
+                  <Check size={14} aria-hidden="true" /> Wearing today
+                </span>
+              ) : showPlan ? (
+                <span className="muted small">
+                  <CalendarCheck2 size={14} aria-hidden="true" /> You planned this
+                </span>
+              ) : (
+                !custom && outfits.length > 1 && <span className="muted small mono">{(index % outfits.length) + 1} of {outfits.length}</span>
+              )}
+              <button type="button" className="icon-btn" aria-label="Share this outfit" disabled={sharing} onClick={() => setSharing(true)}>
+                <Share2 size={18} aria-hidden="true" />
+              </button>
+            </span>
           </header>
 
           <div className="seg" role="tablist" aria-label="Outfit view">
@@ -418,7 +467,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
                 {profile.heightCm && profile.weightKg
                   ? `Shaped from ${profile.heightCm} cm and ${profile.weightKg} kg. `
                   : 'Average proportions. Add your height and weight in your profile for a closer figure. '}
-                Pieces with a background-removed photo appear as that photo; others are drawn in their colors. A styling preview, not a fit guide.
+                Pieces with a background-removed photo wear their own fabric; others are drawn in their colors. A styling preview, not a fit guide.
               </p>
             </div>
           )}
@@ -544,6 +593,24 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
       )}
 
       {scoreOpen && outfit && <ScoreSheet outfit={outfit} onClose={() => setScoreOpen(false)} />}
+      {sharing && outfit && (
+        <div ref={shareSvg} className="offscreen" aria-hidden="true">
+          <Mannequin pieces={outfit.pieces} profile={profile} />
+          <ShareRunner
+            target={shareSvg}
+            input={{
+              title: showingWorn ? 'Today’s outfit' : 'Outfit idea',
+              subtitle: `${dayFmt.format(now)} · ${OCCASIONS.find((o) => o.id === occasion)?.label ?? ''}`,
+              pieces: outfit.pieces,
+              lines: explain(outfit, ctx).slice(1, 3),
+            }}
+            onDone={(msg, error) => {
+              setSharing(false)
+              if (msg) toast(msg, error ? 'error' : 'ok')
+            }}
+          />
+        </div>
+      )}
       {howOpen && <HowItWorksSheet onClose={() => setHowOpen(false)} />}
 
       {disliking && outfit && (
@@ -637,4 +704,34 @@ function WeatherFacts({ w }: { w: Weather }) {
       {w.uvMax >= 6 && <li>UV {Math.round(w.uvMax)}</li>}
     </ul>
   )
+}
+
+/** Draws the share picture once the hidden mannequin is on the page, then opens the share sheet. */
+function ShareRunner({
+  target,
+  input,
+  onDone,
+}: {
+  target: RefObject<HTMLDivElement | null>
+  input: { title: string; subtitle: string; pieces: Garment[]; lines: string[] }
+  onDone: (message: string | null, error?: boolean) => void
+}) {
+  // Read the latest props when the timer fires; re-renders must not restart or cancel it.
+  const latest = useRef({ input, onDone })
+  useEffect(() => {
+    latest.current = { input, onDone }
+  })
+  useEffect(() => {
+    // Give cut-out photos on the mannequin a moment to load.
+    const t = setTimeout(() => {
+      const { input: data, onDone: done } = latest.current
+      const svg = target.current?.querySelector('svg') ?? null
+      renderOutfitImage({ ...data, mannequin: svg })
+        .then((blob) => shareImage(blob, 'What do you think of this outfit? Styled with Drape'))
+        .then((r) => done(r === 'saved' ? 'Picture saved' : null))
+        .catch(() => done('Could not create the picture.', true))
+    }, 700)
+    return () => clearTimeout(t)
+  }, [target])
+  return null
 }

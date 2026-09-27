@@ -126,6 +126,63 @@ export function findGarment(rgba: Uint8ClampedArray, width: number, height: numb
   return { width, height, data, coverage, box: { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 } }
 }
 
+export interface TypeGuess {
+  category: 'top' | 'bottom' | 'dress' | 'footwear'
+  subtype: string
+  /** 0..1, how sure the guess is. */
+  confidence: number
+}
+
+/**
+ * Guesses what kind of piece a cut-out is from its outline: sleeves stick out at
+ * the top of tops, trousers have a gap between the legs, dresses flare out at the
+ * hem, and a pair of shoes is low and wide. A starting point the person confirms.
+ */
+export function guessType(mask: Mask): TypeGuess | null {
+  const { width, data, box } = mask
+  if (box.w < 4 || box.h < 4) return null
+  const rowWidth = (fy: number) => {
+    const y = Math.min(box.y + box.h - 1, Math.max(box.y, Math.round(box.y + fy * box.h)))
+    let min = -1
+    let max = -1
+    for (let x = box.x; x < box.x + box.w; x++) {
+      if (data[y * width + x]) {
+        if (min < 0) min = x
+        max = x
+      }
+    }
+    return min < 0 ? 0 : (max - min + 1) / box.w
+  }
+  // Share of background in a thin centre column over the lower part: a leg gap.
+  const gap = (() => {
+    const cx0 = Math.round(box.x + box.w * 0.47)
+    const cx1 = Math.round(box.x + box.w * 0.53)
+    let bg = 0
+    let n = 0
+    for (let y = Math.round(box.y + box.h * 0.62); y < box.y + box.h; y++)
+      for (let x = cx0; x <= cx1; x++) {
+        n++
+        if (!data[y * width + x]) bg++
+      }
+    return n ? bg / n : 0
+  })()
+  const aspect = box.h / box.w
+  const upper = rowWidth(0.22)
+  const middle = rowWidth(0.55)
+  const hem = rowWidth(0.95)
+
+  if (aspect < 0.62) return { category: 'footwear', subtype: 'Sneakers', confidence: 0.5 }
+  if (gap > 0.55 && aspect > 1.05) {
+    return aspect > 1.7 ? { category: 'bottom', subtype: 'Jeans', confidence: 0.7 } : { category: 'bottom', subtype: 'Shorts', confidence: 0.55 }
+  }
+  if (upper > middle * 1.22 && upper > 0.8) {
+    return aspect > 1.6 ? { category: 'dress', subtype: 'Casual dress', confidence: 0.4 } : { category: 'top', subtype: 'T-shirt', confidence: 0.65 }
+  }
+  if (aspect > 1.4 && hem > middle * 1.15) return { category: 'dress', subtype: 'Casual dress', confidence: 0.55 }
+  if (aspect > 1.3 && hem > middle * 1.05 && gap < 0.2) return { category: 'bottom', subtype: 'Skirt', confidence: 0.35 }
+  return { category: 'top', subtype: '', confidence: 0.3 }
+}
+
 /** Turns the hard 0/1 mask into 0..255 alpha with a slightly soft edge (two box-blur passes). */
 export function softEdges(mask: Mask): Uint8ClampedArray {
   const { width: w, height: h } = mask
@@ -176,6 +233,7 @@ export interface Cutout {
   thumb: Blob
   width: number
   height: number
+  guess: TypeGuess | null
 }
 
 /** Cuts the garment out of a photo. Returns null if the background isn't plain enough. */
@@ -220,7 +278,7 @@ export async function cutOut(photo: Blob): Promise<Cutout | null> {
   try {
     const full = await render(OUT_FULL)
     const thumb = await render(OUT_THUMB)
-    return { full: full.blob, thumb: thumb.blob, width: full.w, height: full.h }
+    return { full: full.blob, thumb: thumb.blob, width: full.w, height: full.h, guess: guessType(mask) }
   } finally {
     m.c.width = 0
   }

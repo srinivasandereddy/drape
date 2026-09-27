@@ -8,6 +8,12 @@ export const MAX_TRIP_DAYS = 21
 
 export interface Trip {
   id: string
+  /** A trip spans days away; an event is one day (a festival, wedding, interview…). */
+  kind: 'trip' | 'event'
+  /** Event name, e.g. "Diwali" or "Priya's wedding". */
+  title: string
+  /** Event template id (see events.ts), if one was used. */
+  theme: string | null
   destination: City
   /** YYYY-MM-DD, local */
   start: string
@@ -66,6 +72,9 @@ export function createTrip(d: TripDraft, now: Date = new Date()): Trip {
   const at = now.toISOString()
   return {
     id: newId(now.getTime()),
+    kind: 'trip',
+    title: '',
+    theme: null,
     destination: d.destination,
     start: d.start,
     end: d.end,
@@ -88,6 +97,9 @@ export function normalizeTrip(raw: unknown): Trip | null {
   const createdAt = typeof r.createdAt === 'string' ? r.createdAt : new Date().toISOString()
   return {
     id: r.id,
+    kind: r.kind === 'event' ? 'event' : 'trip',
+    title: typeof r.title === 'string' ? r.title.slice(0, 60) : '',
+    theme: typeof r.theme === 'string' ? r.theme.slice(0, 30) : null,
     destination: { name: c.name, region: String(c.region ?? ''), country: String(c.country ?? ''), latitude: c.latitude, longitude: c.longitude },
     start: r.start,
     end: r.end < r.start ? r.start : r.end,

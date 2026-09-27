@@ -131,6 +131,9 @@ describe('sync between two phones through Drive', () => {
       await db.put('feedback', { id: g.id, date: '2026-09-27', garmentIds: [g.id], verdict: 'love', reason: null, note: '', createdAt: at(4).toISOString(), deletedAt: null })
       await db.put('trips', {
         id: g.id,
+        kind: 'trip',
+        title: '',
+        theme: null,
         destination: { name: 'Goa', region: 'Goa', country: 'India', latitude: 15, longitude: 74 },
         start: '2026-10-02',
         end: '2026-10-04',

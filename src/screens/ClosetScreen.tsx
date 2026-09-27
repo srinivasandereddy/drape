@@ -3,11 +3,22 @@ import { useMemo, useState } from 'react'
 import { PieceImage } from '../components/PieceImage'
 import { CLOSET_FILTERS } from '../lib/catalog'
 import { useToast } from '../components/toastContext'
-import { reload, useCloset } from '../lib/closet'
-import { displayName } from '../lib/model'
+import { reload, setStatusMany, useCloset } from '../lib/closet'
+import { displayName, inCloset, STATUS_LABELS, type Garment } from '../lib/model'
 import { prefs } from '../lib/platform'
 import { useProfile } from '../lib/profile'
 import { loadSampleWardrobe } from '../lib/sampleLoader'
+
+type Where = 'closet' | 'laundry' | 'away' | 'wishlist' | 'retired'
+const WHERE: readonly Where[] = ['closet', 'laundry', 'away', 'wishlist', 'retired']
+const WHERE_LABELS: Record<Where, string> = { closet: 'My closet', laundry: 'In the wash', away: 'Lent / tailor', wishlist: 'Wishlist', retired: 'Donated / sold' }
+const WHERE_TEST: Record<Where, (g: Garment) => boolean> = {
+  closet: inCloset,
+  laundry: (g) => g.status === 'laundry',
+  away: (g) => g.status === 'lent' || g.status === 'tailor',
+  wishlist: (g) => g.status === 'wishlist',
+  retired: (g) => g.status === 'retired',
+}
 
 type Props = { onOpen: (id: string) => void; onAdd: () => void; onQuickAdd: () => void }
 
@@ -35,10 +46,17 @@ export function ClosetScreen({ onOpen, onAdd, onQuickAdd }: Props) {
   })
   const filter = CLOSET_FILTERS.find((f) => f.id === filterId) ?? CLOSET_FILTERS[0]!
 
+  const [where, setWhere] = useState<Where>('closet')
+  const counts = useMemo(() => {
+    const c: Record<Where, number> = { closet: 0, laundry: 0, away: 0, wishlist: 0, retired: 0 }
+    for (const g of closet.garments) for (const w of WHERE) if (WHERE_TEST[w](g)) c[w]++
+    return c
+  }, [closet.garments])
   const visible = useMemo(
-    () => (filter.categories ? closet.garments.filter((g) => filter.categories!.includes(g.category)) : closet.garments),
-    [closet.garments, filter],
+    () => closet.garments.filter((g) => WHERE_TEST[where](g) && (!filter.categories || filter.categories.includes(g.category))),
+    [closet.garments, filter, where],
   )
+  const owned = counts.closet
 
   const choose = (id: string) => {
     setFilterId(id)
@@ -50,7 +68,8 @@ export function ClosetScreen({ onOpen, onAdd, onQuickAdd }: Props) {
       <div className="screen-head">
         <h1 id="closet-title">Closet</h1>
         <p className="muted">
-          {closet.status === 'loading' ? 'Loading…' : `${closet.garments.length} piece${closet.garments.length === 1 ? '' : 's'}`}
+          {closet.status === 'loading' ? 'Loading…' : `${owned} piece${owned === 1 ? '' : 's'}`}
+          {counts.laundry > 0 && ` · ${counts.laundry} in the wash`}
           {samples > 0 && ` · ${samples} sample${samples === 1 ? '' : 's'}`}
         </p>
         {closet.garments.length > 0 && (
@@ -67,6 +86,23 @@ export function ClosetScreen({ onOpen, onAdd, onQuickAdd }: Props) {
             Try again
           </button>
         </div>
+      )}
+
+      {closet.garments.length > 0 && (counts.laundry + counts.away + counts.wishlist + counts.retired > 0 || where !== 'closet') && (
+        <div className="filter-row" role="toolbar" aria-label="Where the pieces are">
+          {WHERE.filter((w) => w === 'closet' || counts[w] > 0 || w === where).map((w) => (
+            <button key={w} type="button" className={w === where ? 'chip on' : 'chip'} aria-pressed={w === where} onClick={() => setWhere(w)}>
+              {WHERE_LABELS[w]}
+              {w !== 'closet' && <span className="mono"> {counts[w]}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {where === 'laundry' && counts.laundry > 0 && (
+        <button type="button" className="btn" onClick={() => void setStatusMany(closet.garments.filter((g) => g.status === 'laundry').map((g) => g.id), 'available')}>
+          Everything is back from the wash
+        </button>
       )}
 
       {closet.garments.length > 0 && (
@@ -106,7 +142,10 @@ export function ClosetScreen({ onOpen, onAdd, onQuickAdd }: Props) {
           {visible.map((g) => (
             <li key={g.id}>
               <button type="button" className="tile" onClick={() => onOpen(g.id)}>
-                <PieceImage garment={g} kind="thumb" className="tile-img" />
+                <span className="tile-frame">
+                  <PieceImage garment={g} kind="thumb" className="tile-img" />
+                  {g.status !== 'available' && <span className={`tile-badge ${g.status}`}>{STATUS_LABELS[g.status]}</span>}
+                </span>
                 <span className="tile-name">{displayName(g)}</span>
               </button>
             </li>

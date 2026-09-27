@@ -10,7 +10,8 @@ import { reloadProfile } from './profile'
 import { syncOnce } from './sync'
 import { reloadTrips } from './trips'
 
-export type SyncStatus = 'idle' | 'syncing' | 'paused' | 'offline' | 'error'
+/** needs-drive: signed in, but the Drive permission was not given yet. */
+export type SyncStatus = 'idle' | 'syncing' | 'paused' | 'needs-drive' | 'offline' | 'error'
 
 export interface SyncState {
   status: SyncStatus
@@ -64,7 +65,7 @@ export function syncNow(): Promise<void> {
           return
         }
         if (!hasDriveAccess()) {
-          set({ status: 'error', message: 'Drive access was not allowed. Sign out and in again, keeping the Drive box ticked.' })
+          set({ status: 'needs-drive', message: 'Allow Drive backup to keep your closet safe and on all your phones.' })
           return
         }
         if (!navigator.onLine) {

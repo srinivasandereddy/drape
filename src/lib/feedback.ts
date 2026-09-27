@@ -46,6 +46,8 @@ export const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${
 
 const MAIN = new Set(['top', 'bottom', 'onepiece', 'layer', 'footwear'])
 
+const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
 function mainPairs(pieces: Garment[]): string[] {
   const mains = pieces.filter((p) => MAIN.has(slotOf(p)))
   const out: string[] = []
@@ -88,9 +90,14 @@ export function applyDislike(adj: DayAdjust, reason: DislikeReason, pieces: Garm
 export interface Affinity {
   pairs: Map<string, number>
   pieces: Map<string, number>
+  /** Pairings actually worn: how often, and the last date (YYYY-MM-DD). */
+  worn?: Map<string, { count: number; last: string }>
 }
 
-export function learnAffinity(records: FeedbackRecord[], byId: Map<string, Garment>): Affinity {
+/** Something that was worn: a day's outfit from the calendar. */
+export type WornOutfit = { date: string; garmentIds: string[]; planned?: boolean }
+
+export function learnAffinity(records: FeedbackRecord[], byId: Map<string, Garment>, history: WornOutfit[] = []): Affinity {
   const pairs = new Map<string, number>()
   const pieces = new Map<string, number>()
   const bump = (m: Map<string, number>, k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v)
@@ -106,18 +113,35 @@ export function learnAffinity(records: FeedbackRecord[], byId: Map<string, Garme
     }
     // Weather, dress-code and "worn recently" reasons are about the day, not taste.
   }
-  return { pairs, pieces }
+  // What the person chose to wear is quiet approval of those pairings.
+  const worn = new Map<string, { count: number; last: string }>()
+  for (const o of history) {
+    if (o.planned) continue
+    const garments = o.garmentIds.map((id) => byId.get(id)).filter((g): g is Garment => !!g)
+    for (const k of mainPairs(garments)) {
+      const prev = worn.get(k)
+      worn.set(k, { count: (prev?.count ?? 0) + 1, last: prev && prev.last > o.date ? prev.last : o.date })
+    }
+  }
+  return { pairs, pieces, worn }
 }
 
 /** Score points (−8 … +8) from learned taste for a set of pieces. */
-export function affinityPoints(pieces: Garment[], a: Affinity | null): { points: number; loved: boolean } {
+export function affinityPoints(pieces: Garment[], a: Affinity | null, now?: Date): { points: number; loved: boolean } {
   if (!a) return { points: 0, loved: false }
   let pts = 0
   let loved = false
+  const today = now ? localDay(now) : null
   for (const k of mainPairs(pieces)) {
     const v = Math.max(-2, Math.min(2, a.pairs.get(k) ?? 0))
     pts += 3 * v
     if (v > 0) loved = true
+    const w = a.worn?.get(k)
+    if (w && today) {
+      const days = (Date.parse(today) - Date.parse(w.last)) / 86_400_000
+      // Worn together this week: suggest something else. Otherwise a proven pairing.
+      pts += days < 7 ? -4 : Math.min(2, w.count * 0.75)
+    }
   }
   for (const p of pieces) pts += Math.max(-1, Math.min(1, a.pieces.get(p.id) ?? 0))
   return { points: Math.max(-8, Math.min(8, pts)), loved }

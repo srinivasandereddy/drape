@@ -4,7 +4,7 @@
 import { useSyncExternalStore } from 'react'
 import { resetClosetStore } from './closet'
 import { closeDb, deleteAccountDb, selectAccountDb } from './db'
-import { driveRemote, fetchUser, hasDriveAccess, isSignedIn, signIn, signOut as driveSignOut, type GoogleUser } from './drive'
+import { driveRemote, fetchUser, hasDriveAccess, isSignedIn, requestDriveAccess, signIn, signOut as driveSignOut, type GoogleUser } from './drive'
 import { prefs } from './platform'
 import { EMPTY_PROFILE, resetProfileStore, saveProfile } from './profile'
 import { wipeRemote } from './sync'
@@ -123,7 +123,7 @@ export async function deleteDrapeAccount(onProgress?: (done: number, total: numb
   const me = current
   if (!me) throw new Error('Nobody is signed in.')
   if (!isSignedIn()) await reconnect()
-  if (!hasDriveAccess()) throw new Error('Drape needs Drive access to delete your backup. Sign out and in again, keeping the Drive box ticked.')
+  if (!hasDriveAccess()) await requestDriveAccess(me.email)
   // Stop syncing first, so nothing is uploaded again while deleting.
   startSync(null)
   await wipeRemote(driveRemote, onProgress)
@@ -132,4 +132,9 @@ export async function deleteDrapeAccount(onProgress?: (done: number, total: numb
   switchTo(null)
   await deleteAccountDb(me.sub)
   for (const k of ['today', 'occasion', 'lastSync']) prefs.remove(`${me.sub}.${k}`)
+}
+
+/** Asks Google for the Drive permission for the signed-in person. */
+export async function allowDrive(): Promise<void> {
+  await requestDriveAccess(current?.email)
 }

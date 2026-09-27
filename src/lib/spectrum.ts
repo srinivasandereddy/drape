@@ -2,7 +2,7 @@
 
 import { colorName, hexToLab, hueOf, isNeutral, temperature } from './color'
 import { harmonyOf, type HarmonyKind } from './harmony'
-import { dominantHex, type Garment } from './model'
+import { dominantHex, inCloset, type Garment } from './model'
 import { slotOf, type Slot } from './outfit'
 
 export const HUE_BUCKETS: readonly { id: number; label: string; hue: number }[] = [
@@ -145,7 +145,7 @@ export function matchesFor(piece: Garment, garments: Garment[]): Match[] {
   if (!hex) return []
   const partners = PARTNERS[slotOf(piece)]
   return garments
-    .filter((g) => g.id !== piece.id && partners.includes(slotOf(g)) && dominantHex(g))
+    .filter((g) => g.id !== piece.id && inCloset(g) && partners.includes(slotOf(g)) && dominantHex(g))
     .map((g) => {
       const h = harmonyOf([hex, dominantHex(g)!])
       return { garment: g, kind: h.kind, score: h.score }

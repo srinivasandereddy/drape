@@ -17,20 +17,23 @@ export default defineConfig({
     VitePWA({
       // 'prompt': a new version waits until the person taps Update (see UpdateBanner).
       registerType: 'prompt',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
-      workbox: {
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'icon-maskable-512.png'],
+      // Our own service worker (src/sw/sw.ts), so it can also show the morning reminder.
+      strategies: 'injectManifest',
+      srcDir: 'src/sw',
+      filename: 'sw.ts',
+      injectManifest: {
         // Cache the app shell and fonts so Drape opens without a connection.
         // Google sign-in and Drive requests go to other domains and are never cached.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // The privacy page is a real page, not a screen of the app.
-        navigateFallbackDenylist: [/privacy\.html$/],
       },
       manifest: {
         name: 'Drape',
         short_name: 'Drape',
         description: 'Your wardrobe, colors and daily outfits.',
         theme_color: '#17191C',
-        background_color: '#F7F7F4',
+        // The Android splash screen: the icon on its own dark background.
+        background_color: '#17191C',
         display: 'standalone',
         orientation: 'portrait',
         // Android: Drape appears in the share sheet, so a shop's product link can be sent straight to it.
@@ -42,7 +45,7 @@ export default defineConfig({
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
     }),

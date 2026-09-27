@@ -492,10 +492,11 @@ button:disabled { cursor: default; }
 .reason { min-height: 52px; padding: 0 16px; text-align: left; border-radius: 12px; border: 1px solid var(--line); background: var(--card); font-size: 16px; }
 
 /* Wizard, quiz and dosha */
-.wizard-dots { display: flex; gap: 6px; justify-content: center; }
-.wizard-dots button { width: 28px; height: 6px; padding: 0; border: 0; border-radius: 3px; background: var(--line); }
-.wizard-dots li.done button { background: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-.wizard-dots li.on button { background: var(--accent); }
+.wizard-dots { display: flex; gap: 6px; justify-content: center; list-style: none; margin: 0; padding: 0; }
+.wizard-dots li { display: flex; }
+.wizard-dots button { width: 28px; height: 24px; padding: 9px 0; border: 0; border-radius: 3px; background: var(--line); background-clip: content-box; }
+.wizard-dots li.done button { background-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.wizard-dots li.on button { background-color: var(--accent); }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .range { width: 100%; accent-color: var(--accent); height: 32px; }
 .range-labels { display: flex; justify-content: space-between; }
@@ -627,3 +628,60 @@ a.btn { text-decoration: none; }
 :root { --mq-hair: #5b4a3f; }
 @media (prefers-color-scheme: dark) { :root { --mq-hair: #2a2320; } }
 :root[data-look='midnight'] { --mq-hair: #2a2320; }
+
+/* ---------- v0.9: personal profile ---------- */
+.swatch-choice { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.swatch-opt { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border: 2px solid var(--line); border-radius: 12px; background: var(--card); font-size: 13px; }
+.swatch-opt i { width: 34px; height: 34px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); }
+.swatch-opt.on { border-color: var(--ink); font-weight: 700; }
+.palette-item.on { outline: 2px solid var(--ink); font-weight: 700; }
+.palette-item:disabled { opacity: 0.35; }
+.shape-list { display: flex; flex-direction: column; gap: 8px; }
+.shape-card { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border: 2px solid var(--line); border-radius: 12px; background: var(--card); text-align: left; }
+.shape-card.on { border-color: var(--ink); }
+.season-card h3 { font-size: 24px; }
+.season-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.tile-frame { position: relative; display: block; }
+.tile-badge { position: absolute; left: 6px; bottom: 6px; padding: 2px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700; background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / 0.15); }
+.tile-badge.laundry { background: #dbe9fb; color: #1d4f8f; }
+.tile-badge.wishlist { background: #fbe8d6; color: #8a4b12; }
+.tile-badge.retired { background: var(--backdrop); color: var(--mute); }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; }
+.stat { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 12px; background: var(--backdrop); }
+.stat b { font-size: 22px; }
+.rank-list { display: flex; flex-direction: column; }
+.rank-row { width: 100%; display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 10px; padding: 6px 0; border: 0; border-top: 1px solid var(--line); background: none; text-align: left; }
+.rank-list li:first-child .rank-row { border-top: 0; }
+.rank-img, .rank-row .color-tile, .rank-row .photo-loading, .rank-row .photo-missing { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--backdrop); }
+
+/* Calendar */
+.cal-head { display: flex; align-items: center; justify-content: space-between; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-dow { text-align: center; }
+.cal-day { position: relative; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 10px; background: var(--card); padding: 0; overflow: hidden; display: flex; align-items: flex-start; justify-content: flex-start; }
+.cal-day.today { border: 2px solid var(--accent); }
+.cal-day.planned { border-style: dashed; border-color: var(--accent); }
+.cal-num { position: absolute; top: 2px; left: 4px; font-size: 11px; font-weight: 700; z-index: 1; text-shadow: 0 0 3px var(--card); }
+.cal-thumb, .cal-day .color-tile, .cal-day .photo-loading, .cal-day .photo-missing { width: 100%; height: 100%; object-fit: cover; }
+.plan-preview { display: flex; justify-content: center; }
+.plan-preview .mannequin { max-width: 170px; }
+.offscreen { position: fixed; left: -10000px; top: 0; width: 400px; }
+.outfit-head-right { display: inline-flex; align-items: center; gap: 4px; }
+.event-banner { border-style: solid; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.notice.small > div { display: inline-flex; align-items: center; gap: 6px; }
+.advice.great { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
+.advice.think { border-color: color-mix(in srgb, #c98a1a 55%, var(--line)); }
+.bulk-list { display: flex; flex-direction: column; gap: 8px; }
+.bulk-row { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.bulk-img { width: 64px; height: 64px; border-radius: 10px; overflow: hidden; display: grid; place-items: center; }
+.bulk-img img { width: 100%; height: 100%; object-fit: contain; }
+.bulk-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.bulk-colors { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sync-badge.needs-drive { color: var(--ink); }
+
+/* ---------- v0.9: first-run tour ---------- */
+.tour-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: end center; padding: 16px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); background: color-mix(in srgb, #000 45%, transparent); }
+.tour-card { width: 100%; max-width: 440px; background: var(--card); color: var(--ink); border-radius: 24px; padding: 24px; box-shadow: 0 20px 60px rgb(0 0 0 / 0.25); }
+.tour-card h2 { margin: 0; }
+.tour-card p { margin: 0; }
+.tour-icon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }

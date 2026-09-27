@@ -8,7 +8,7 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
 const SCOPES = `openid email profile ${DRIVE_SCOPE}`
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 
-type TokenResponse = { access_token?: string; expires_in?: number; error?: string; error_description?: string }
+type TokenResponse = { access_token?: string; expires_in?: number; scope?: string; error?: string; error_description?: string }
 type TokenClient = { requestAccessToken: (opts?: { prompt?: string; login_hint?: string }) => void }
 type GoogleGlobal = {
   accounts: {
@@ -16,6 +16,7 @@ type GoogleGlobal = {
       initTokenClient: (cfg: {
         client_id: string
         scope: string
+        include_granted_scopes?: boolean
         callback: (r: TokenResponse) => void
         error_callback?: (e: { type: string; message?: string }) => void
       }) => TokenClient
@@ -85,6 +86,19 @@ function friendlyError(code: string): string {
  * `hint` pre-selects an account when signing in again.
  */
 export async function signIn(hint?: string): Promise<void> {
+  return requestToken(SCOPES, hint ? { prompt: '', login_hint: hint } : { prompt: 'select_account' })
+}
+
+/**
+ * Asks Google for the Drive permission only. Used when the person left the Drive
+ * box unticked on the first sign-in: Google then shows just that one question.
+ */
+export async function requestDriveAccess(hint?: string): Promise<void> {
+  await requestToken(DRIVE_SCOPE, { prompt: 'consent', ...(hint ? { login_hint: hint } : {}) })
+  if (!token?.drive) throw new Error('Drive access is still off. Tick the box for "See, create and delete its own configuration data in your Google Drive" to back up your closet.')
+}
+
+async function requestToken(scope: string, opts: { prompt?: string; login_hint?: string }): Promise<void> {
   if (!CLIENT_ID) throw new Error('Google sign-in is not set up in this build.')
   if (!navigator.onLine) throw new Error('You are offline. Connect to the internet to sign in.')
   await loadGoogleScript()
@@ -92,20 +106,22 @@ export async function signIn(hint?: string): Promise<void> {
     const oauth = window.google!.accounts.oauth2
     const client = oauth.initTokenClient({
       client_id: CLIENT_ID,
-      scope: SCOPES,
+      scope,
+      // Keep earlier permissions (name, email) when asking for Drive later.
+      include_granted_scopes: true,
       callback: (r) => {
         if (r.error || !r.access_token) return reject(new Error(r.error_description ?? friendlyError(r.error ?? 'unknown')))
         token = {
           value: r.access_token,
           expiresAt: Date.now() + (r.expires_in ?? 3600) * 1000 - 30_000,
-          drive: oauth.hasGrantedAllScopes(r, DRIVE_SCOPE),
+          drive: oauth.hasGrantedAllScopes(r, DRIVE_SCOPE) || (r.scope ?? '').split(' ').includes(DRIVE_SCOPE),
         }
         saveToken(token)
         resolve()
       },
       error_callback: (e) => reject(new Error(friendlyError(e.type))),
     })
-    client.requestAccessToken(hint ? { prompt: '', login_hint: hint } : { prompt: 'select_account' })
+    client.requestAccessToken(opts)
   })
 }
 

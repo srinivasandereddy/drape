@@ -39,6 +39,10 @@ export interface OutfitRecord {
   occasion: string
   createdAt: string
   deletedAt: string | null
+  /** A plan for a future day rather than something already worn. */
+  planned?: boolean
+  /** Optional label, e.g. "Diwali" or "Interview". */
+  note?: string
 }
 
 interface DrapeDB extends DBSchema {

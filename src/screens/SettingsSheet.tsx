@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Sheet } from '../components/Sheet'
 import { HowItWorksSheet } from './HowItWorksSheet'
+import type { WizardStep } from '../lib/wizardSteps'
 import { useToast } from '../components/toastContext'
-import { deleteDrapeAccount, reconnect, removeAccountFromPhone, resetProfile, signOutAccount, useAccount } from '../lib/account'
+import { allowDrive, deleteDrapeAccount, reconnect, removeAccountFromPhone, resetProfile, signOutAccount, useAccount } from '../lib/account'
 import { deleteEverything, removeSamples, useCloset } from '../lib/closet'
 import { storageEstimate } from '../lib/db'
 import { doshaLabel } from '../lib/dosha'
 import { APP_VERSION, isStandalone } from '../lib/platform'
 import { syncNow, useSync } from '../lib/syncStore'
-import { metalLabel, routineDef, THEMES, useProfile } from '../lib/profile'
+import { bodyShapeDef, seasonFor, SEASONS, SKIN_TONES } from '../lib/personal'
+import { metalLabel, money, routineDef, THEMES, useProfile } from '../lib/profile'
 import { styleDef } from '../lib/styles'
 import { cityLabel } from '../lib/weather'
+import { readReminder, reminderSupport, testReminder, turnOffReminder, turnOnReminder, updateReminder } from '../lib/reminder'
 
-type Props = { onClose: () => void; onEditProfile: (step?: number) => void }
+type Props = { onClose: () => void; onEditProfile: (step?: WizardStep) => void }
 
 export function SettingsSheet({ onClose, onEditProfile }: Props) {
   const toast = useToast()
@@ -45,7 +48,7 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
     }
   }
 
-  const edit = (step: number) => {
+  const edit = (step: WizardStep) => {
     onClose()
     onEditProfile(step)
   }
@@ -60,6 +63,16 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
     ['Weekday', routineDef(profile.routine)?.label ?? null],
     ['Styles', profile.styles.length ? profile.styles.map((s) => styleDef(s).label).join(', ') : null],
     ['Metal', metalLabel(profile)],
+    ['Skin tone', profile.skinTone ? `${SKIN_TONES.find((s) => s.id === profile.skinTone)!.label}${profile.undertone ? `, ${profile.undertone} undertone` : ''}` : null],
+    ['Color season', (() => {
+      const s = seasonFor(profile.skinTone, profile.undertone, profile.hair, profile.eyes)
+      return s ? SEASONS[s].label : null
+    })()],
+    ['Body shape', bodyShapeDef(profile.bodyShape)?.label ?? null],
+    ['Favourite colors', profile.favoriteColors.length ? profile.favoriteColors.join(', ') : null],
+    ['Never wear', profile.avoidColors.length ? profile.avoidColors.join(', ') : null],
+    ['Sizes', [profile.sizes.top && `Top ${profile.sizes.top}`, profile.sizes.bottom && `Bottom ${profile.sizes.bottom}`, profile.sizes.shoe && `Shoe ${profile.sizes.shoe}`].filter(Boolean).join(' · ') || null],
+    ['Usual spend', profile.budget ? money(profile, profile.budget) : null],
     ['Dosha', profile.dosha ? doshaLabel(profile.dosha) : null],
     ['Colors', THEMES.find((t) => t.id === profile.theme)?.label ?? null],
   ]
@@ -103,13 +116,13 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
             ))}
           </dl>
           <div className="row-actions">
-            <button type="button" className="btn primary" onClick={() => edit(0)}>
+            <button type="button" className="btn primary" onClick={() => edit('about')}>
               Edit profile
             </button>
-            <button type="button" className="btn" onClick={() => edit(3)}>
+            <button type="button" className="btn" onClick={() => edit('body')}>
               {profile.dosha ? 'Dosha result' : 'Take dosha quiz'}
             </button>
-            <button type="button" className="btn" onClick={() => edit(4)}>
+            <button type="button" className="btn" onClick={() => edit('look')}>
               App colors
             </button>
           </div>
@@ -138,6 +151,8 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
         </section>
 
         <SyncCard />
+
+        <ReminderCard />
 
         <section className="card stack-sm" aria-labelledby="s-how">
           <h2 id="s-how">How Drape picks outfits</h2>
@@ -343,6 +358,8 @@ function SyncCard() {
             ? `Syncing${s.total ? ` ${s.done} of ${s.total}` : '…'}`
             : s.status === 'paused'
               ? 'Paused'
+              : s.status === 'needs-drive'
+                ? 'Drive backup is off'
               : s.status === 'offline'
                 ? 'Offline'
                 : s.status === 'error'
@@ -359,7 +376,14 @@ function SyncCard() {
         </div>
       )}
       {s.message && <p className={s.status === 'error' ? 'error-text' : 'muted small'}>{s.message}</p>}
-      {s.status === 'paused' ? (
+      {s.status === 'needs-drive' ? (
+        <>
+          <button type="button" className="btn primary" disabled={busy} onClick={() => void go(allowDrive)}>
+            Allow Drive backup
+          </button>
+          <p className="muted small">Google will ask one question: tick the box that lets Drape use its own hidden folder in your Drive. Drape can't see any of your other files.</p>
+        </>
+      ) : s.status === 'paused' ? (
         <button type="button" className="btn primary" disabled={busy} onClick={() => void go(reconnect)}>
           Reconnect to Google
         </button>
@@ -369,6 +393,101 @@ function SyncCard() {
         </button>
       )}
       <p className="muted small">Google access lasts about an hour at a time. When it runs out, Drape pauses syncing until you tap Reconnect; nothing is lost.</p>
+    </section>
+  )
+}
+
+const HOURS = [5, 6, 7, 8, 9, 10]
+
+/** Morning outfit reminder: Android (installed app) only; iPhones get a Shortcuts tip. */
+function ReminderCard() {
+  const toast = useToast()
+  const { profile } = useProfile()
+  const [on, setOn] = useState<boolean | null>(null)
+  const [hour, setHour] = useState(7)
+  const [busy, setBusy] = useState(false)
+  const support = reminderSupport()
+  const iphone = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  const details = (h: number) => ({ hour: h, name: profile.name.split(' ')[0] ?? '', latitude: profile.city?.latitude ?? null, longitude: profile.city?.longitude ?? null })
+
+  useEffect(() => {
+    void readReminder().then((r) => {
+      setOn(r.enabled)
+      setHour(r.hour)
+    })
+  }, [])
+
+  async function toggle() {
+    setBusy(true)
+    try {
+      if (on) {
+        await turnOffReminder()
+        setOn(false)
+      } else {
+        await turnOnReminder(details(hour))
+        setOn(true)
+        toast(`Reminder on for about ${hour}:00 each morning`)
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not change the reminder.', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="card stack-sm" aria-labelledby="s-remind">
+      <h2 id="s-remind">Morning reminder</h2>
+      {support === 'yes' ? (
+        <>
+          <p className="muted small">A notification each morning with the weather, so today's outfit is ready when you are. On this phone only.</p>
+          <div className="field">
+            <label className="field-label" htmlFor="remind-hour">
+              Around
+            </label>
+            <select
+              id="remind-hour"
+              className="text-input"
+              value={hour}
+              onChange={(e) => {
+                const h = Number(e.target.value)
+                setHour(h)
+                void updateReminder(details(h))
+              }}
+            >
+              {HOURS.map((h) => (
+                <option key={h} value={h}>
+                  {h}:00
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="row-actions">
+            <button type="button" className={on ? 'btn' : 'btn primary'} disabled={busy || on === null} onClick={() => void toggle()}>
+              {on ? 'Turn off' : 'Turn on'}
+            </button>
+            {on && (
+              <button type="button" className="btn" onClick={() => void testReminder(details(hour).name).catch((e: unknown) => toast(e instanceof Error ? e.message : 'Could not send a test.', 'error'))}>
+                Send a test
+              </button>
+            )}
+          </div>
+          <p className="muted small">Android decides the exact time to save battery, so it may arrive a little after {hour}:00.</p>
+        </>
+      ) : support === 'install-first' ? (
+        <p className="muted small">Open Drape from your home screen to turn on a morning reminder.</p>
+      ) : iphone ? (
+        <div className="stack-sm">
+          <p className="muted small">iPhones only let web apps send scheduled notifications through a paid push server, so Drape can't do it by itself. A free way with the Shortcuts app:</p>
+          <ol className="why-mini">
+            <li>Open Shortcuts → Automation → New Automation → Time of Day.</li>
+            <li>Pick your time, choose Daily and Run Immediately.</li>
+            <li>Add the action Show Notification with the text “Check Drape for today’s outfit”.</li>
+          </ol>
+        </div>
+      ) : (
+        <p className="muted small">This browser can't schedule reminders. Use Chrome on Android with Drape added to the home screen.</p>
+      )}
     </section>
   )
 }

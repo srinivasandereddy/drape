@@ -60,6 +60,12 @@ export interface Garment {
   link: string | null
   /** True when the photo is a cut-out with the background removed. */
   bgRemoved: boolean
+  /** Where the piece is right now; only 'available' pieces are suggested. */
+  status: GarmentStatus
+  /** When the status last changed. */
+  statusSince: string | null
+  /** What it cost (in the person's currency), for cost per wear. */
+  price: number | null
   createdAt: string
   updatedAt: string
   /** Set instead of removing the record, so other phones learn about the delete. */
@@ -67,6 +73,20 @@ export interface Garment {
 }
 
 export type GarmentSource = 'photo' | 'text' | 'sample'
+
+/** available: in the closet · laundry/lent/tailor: temporarily away · retired: donated or sold · wishlist: not bought yet */
+export type GarmentStatus = 'available' | 'laundry' | 'lent' | 'tailor' | 'retired' | 'wishlist'
+export const GARMENT_STATUSES: readonly GarmentStatus[] = ['available', 'laundry', 'lent', 'tailor', 'retired', 'wishlist']
+export const STATUS_LABELS: Record<GarmentStatus, string> = {
+  available: 'In my closet',
+  laundry: 'In the wash',
+  lent: 'Lent out',
+  tailor: 'At the tailor',
+  retired: 'Donated or sold',
+  wishlist: 'Wishlist',
+}
+/** Pieces that count as owned and present in the closet lists. */
+export const inCloset = (g: Pick<Garment, 'status'>) => g.status !== 'retired' && g.status !== 'wishlist'
 
 /** The fields a person fills in on the Add / Edit form. */
 export interface GarmentDraft {
@@ -175,6 +195,9 @@ export function createGarment(
     photoRev: 1,
     link: null,
     bgRemoved: false,
+    status: 'available',
+    statusSince: null,
+    price: null,
     createdAt: at,
     updatedAt: at,
     deletedAt: null,
@@ -312,6 +335,9 @@ export function normalizeGarment(raw: unknown): Garment | null {
     photoRev: intIn<number>(raw.photoRev, 1, 1_000_000) ?? 1,
     link: cleanLink(raw.link),
     bgRemoved: raw.bgRemoved === true,
+    status: GARMENT_STATUSES.includes(raw.status as GarmentStatus) ? (raw.status as GarmentStatus) : 'available',
+    statusSince: isoOrNull(raw.statusSince),
+    price: typeof raw.price === 'number' && Number.isFinite(raw.price) && raw.price >= 0 && raw.price < 10_000_000 ? Math.round(raw.price) : null,
     createdAt,
     updatedAt: isoOrNull(raw.updatedAt) ?? createdAt,
     deletedAt: isoOrNull(raw.deletedAt),

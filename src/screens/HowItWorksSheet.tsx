@@ -1,12 +1,21 @@
 import { Sheet } from '../components/Sheet'
+import { WEIGHTS } from '../lib/outfit'
 
-const PARTS: { name: string; casual: number; dressy: number; workout: number; what: string }[] = [
-  { name: 'Color harmony', casual: 40, dressy: 30, workout: 15, what: 'Do the colors work together on the color wheel? One color with neutrals, neighbours (analogous) and opposites (complementary) score high; three loud colors or two patterns at once score low.' },
-  { name: 'Weather', casual: 20, dressy: 20, workout: 20, what: 'Does the fabric weight match the thermal index? Closed shoes when it rains, a layer when it is cold, nothing heavy when it is hot, and pieces tagged for the right season.' },
-  { name: 'Dress code', casual: 15, dressy: 25, workout: 35, what: 'Is it the right level of dressy for the occasion and your routine? Under-dressing costs more than over-dressing. Workouts need real sportswear.' },
-  { name: 'Your style', casual: 10, dressy: 10, workout: 15, what: 'Do the pieces fit your styles or today’s vibe (Old Money, Streetwear, Gym…) and any color you asked for?' },
-  { name: 'Body comfort', casual: 5, dressy: 5, workout: 5, what: 'If you took the dosha quiz: fabrics and colors that suit your constitution.' },
-  { name: 'Freshness', casual: 10, dressy: 10, workout: 10, what: 'Pieces worn in the last few days rest, so you rotate your closet.' },
+type Part = keyof typeof WEIGHTS.casual
+
+const PARTS: { key: Part; name: string; what: string }[] = [
+  { key: 'harmony', name: 'Color harmony', what: 'Do the colors work together on the color wheel? One color with neutrals, neighbours (analogous) and opposites (complementary) score high; three loud colors score low.' },
+  { key: 'weather', name: 'Weather', what: 'Does the fabric weight match the thermal index? Closed shoes when it rains, a layer when it is cold, nothing heavy when it is hot, and pieces tagged for the right season.' },
+  { key: 'occasion', name: 'Dress code', what: 'Is it the right level of dressy for the occasion and your routine? The top counts most. Under-dressing costs more than over-dressing. Workouts need real sportswear.' },
+  {
+    key: 'pairing',
+    name: 'Goes together',
+    what: 'Would a stylist put these pieces together? The same level of dressiness from top to shoes, one print at a time, no clashes like running shoes with a saree or a blazer with joggers (each clash costs 8 more points), and colors that make sense for heat and rain.',
+  },
+  { key: 'style', name: 'Your style', what: 'Do the pieces fit your styles or today’s vibe (Old Money, Streetwear, Gym…) and any color you asked for?' },
+  { key: 'you', name: 'Made for you', what: 'Colors from your color season near your face, your favourite colors and patterns (never the ones you avoid), and light and dark placed to balance your body shape.' },
+  { key: 'body', name: 'Body comfort', what: 'If you took the dosha quiz: fabrics and colors that suit your constitution.' },
+  { key: 'freshness', name: 'Freshness', what: 'Pieces worn in the last few days rest, so you rotate your closet.' },
 ]
 
 /** Plain-language guide to how Drape chooses outfits. */
@@ -55,9 +64,9 @@ export function HowItWorksSheet({ onClose }: { onClose: () => void }) {
                 {PARTS.map((p) => (
                   <tr key={p.name}>
                     <td>{p.name}</td>
-                    <td className="mono">{p.casual}</td>
-                    <td className="mono">{p.dressy}</td>
-                    <td className="mono">{p.workout}</td>
+                    <td className="mono">{WEIGHTS.casual[p.key]}</td>
+                    <td className="mono">{WEIGHTS.dressy[p.key]}</td>
+                    <td className="mono">{WEIGHTS.workout[p.key]}</td>
                   </tr>
                 ))}
               </tbody>
@@ -70,7 +79,7 @@ export function HowItWorksSheet({ onClose }: { onClose: () => void }) {
               </li>
             ))}
           </ul>
-          <p className="muted small">If you haven't set a style or taken the dosha quiz, those points move to color harmony.</p>
+          <p className="muted small">If you haven't set a style, added your personal details or taken the dosha quiz, those points move to color harmony.</p>
         </section>
 
         <section className="stack-sm">
@@ -83,7 +92,7 @@ export function HowItWorksSheet({ onClose }: { onClose: () => void }) {
               <b>Don't like</b> asks why. "Too formal" dresses you down for the rest of the day, "Too cold" adds warmth, "No heels" removes heels, "Not my style" rests those pieces today, and "Colors" pushes that pairing down for good.
             </li>
             <li>
-              <b>Wear this</b> marks the pieces as worn, so the next few days rotate to others.
+              <b>Wear this</b> marks the pieces as worn, so the next few days rotate to others. Pairings you wear become favourites (up to 2 points), but the same top and bottom lose 4 points for a week, so you don't repeat an outfit.
             </li>
           </ul>
         </section>

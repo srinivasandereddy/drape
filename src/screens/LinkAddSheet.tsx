@@ -1,12 +1,15 @@
-import { Images, Link2 } from 'lucide-react'
+import { Heart, Images, Link2, ShoppingBag } from 'lucide-react'
 import { useId, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { GarmentForm } from '../components/GarmentForm'
 import { PhotoPreview } from '../components/PhotoPreview'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
-import { addGarment, addGarments } from '../lib/closet'
+import { adviseOnPurchase } from '../lib/advisor'
+import { addGarment, addGarments, useCloset } from '../lib/closet'
+import { ThumbRow } from '../components/ThumbRow'
 import { extractColorsFromBlob } from '../lib/color'
-import { emptyDraft, validateDraft, type GarmentDraft } from '../lib/model'
+import { createGarment, emptyDraft, validateDraft, type GarmentDraft } from '../lib/model'
+import { money, personalPrefs, useProfile } from '../lib/profile'
 import { readProductLink } from '../lib/productLink'
 import { usePreparedPhoto } from '../lib/usePreparedPhoto'
 
@@ -24,6 +27,9 @@ export function LinkAddSheet({ onClose, shared }: { onClose: () => void; shared?
   const [forUrl, setForUrl] = useState<string | null>(parsed?.url ?? null)
   const [showErrors, setShowErrors] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [price, setPrice] = useState('')
+  const { garments } = useCloset()
+  const { profile } = useProfile()
 
   // A new link replaces the guess (the person's own edits are kept only for the same link).
   if (parsed && parsed.url !== forUrl) {
@@ -45,15 +51,22 @@ export function LinkAddSheet({ onClose, shared }: { onClose: () => void; shared?
 
   const current = draft ?? emptyDraft()
   const errors = validateDraft(current)
+  const priceNum = price.trim() === '' || !Number.isFinite(Number(price)) ? null : Math.max(0, Math.round(Number(price)))
+  const advice = useMemo(() => {
+    if (!current.category) return null
+    const candidate = createGarment(current, null, new Date(), '00000000000000000000000000', 'text')
+    return adviseOnPurchase(candidate, garments, { season: personalPrefs(profile).season, budget: profile.budget, price: priceNum })
+  }, [current, garments, profile, priceNum])
 
-  async function save() {
+  async function save(status: 'available' | 'wishlist') {
     if (!parsed || saving) return
     if (errors.length) return setShowErrors(true)
     setSaving(true)
     try {
-      if (photo.chosen) await addGarment(current, photo.chosen, { link: parsed.url, bgRemoved: photo.useCut && !!photo.cut })
-      else await addGarments([current], 'text', { link: parsed.url })
-      toast('Added to your closet')
+      const extra = { link: parsed.url, status, price: priceNum }
+      if (photo.chosen) await addGarment(current, photo.chosen, { ...extra, bgRemoved: photo.useCut && !!photo.cut })
+      else await addGarments([current], 'text', extra)
+      toast(status === 'wishlist' ? 'Saved to your wishlist' : 'Added to your closet')
       onClose()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not save. Try again.', 'error')
@@ -67,9 +80,14 @@ export function LinkAddSheet({ onClose, shared }: { onClose: () => void; shared?
       onClose={onClose}
       footer={
         parsed && (
-          <button type="button" className="btn primary block" disabled={saving || photo.cutting} onClick={() => void save()}>
-            {saving ? 'Saving…' : 'Save to closet'}
-          </button>
+          <div className="row-actions">
+            <button type="button" className="btn" disabled={saving || photo.cutting} onClick={() => void save('wishlist')}>
+              <Heart size={18} aria-hidden="true" /> Save to wishlist
+            </button>
+            <button type="button" className="btn primary" disabled={saving || photo.cutting} onClick={() => void save('available')}>
+              <ShoppingBag size={18} aria-hidden="true" /> I bought it
+            </button>
+          </div>
         )
       }
     >
@@ -119,6 +137,37 @@ export function LinkAddSheet({ onClose, shared }: { onClose: () => void; shared?
               </button>
             )}
             {photo.error && <p className="error-text">{photo.error}</p>}
+
+            <div className="field">
+              <label className="field-label" htmlFor="link-price">
+                Price <span className="field-hint">· optional</span>
+              </label>
+              <input id="link-price" className="text-input" type="number" inputMode="numeric" min={0} value={price} onChange={(e) => setPrice(e.target.value)} />
+            </div>
+
+            {advice && (
+              <div className={`card stack-sm advice ${advice.verdict}`}>
+                <h3>{advice.verdict === 'great' ? 'Great buy for your closet' : advice.verdict === 'good' ? 'A reasonable buy' : 'Think it over'}</h3>
+                <ul className="why-mini">
+                  {advice.lines.map((l) => (
+                    <li key={l}>{l}</li>
+                  ))}
+                  {priceNum !== null && advice.newOutfits > 0 && <li>About {money(profile, priceNum / Math.max(1, advice.newOutfits * 3))} per wear if you wear each new outfit three times.</li>}
+                </ul>
+                {advice.similar.length > 0 && (
+                  <>
+                    <p className="small">Similar pieces you own:</p>
+                    <ThumbRow garments={advice.similar} onOpen={() => {}} />
+                  </>
+                )}
+                {advice.pairsWith.length > 0 && (
+                  <>
+                    <p className="small">It goes with:</p>
+                    <ThumbRow garments={advice.pairsWith.slice(0, 8)} onOpen={() => {}} />
+                  </>
+                )}
+              </div>
+            )}
 
             <GarmentForm draft={current} onChange={setDraft} />
             {showErrors && errors.length > 0 && (

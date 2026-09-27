@@ -91,6 +91,31 @@ export function bodyFor(heightCm: number | null, weightKg: number | null, gender
 const f = (n: number) => Math.round(n * 10) / 10
 const poly = (pts: [number, number][]) => `M${pts.map(([x, y]) => `${f(x)} ${f(y)}`).join('L')}Z`
 
+/**
+ * A closed outline through these points with rounded corners, so cloth and body
+ * curve like the real thing. Points listed in `sharp` keep a crisp corner (hems, cuffs).
+ */
+export function smooth(pts: [number, number][], sharp: readonly number[] = []): string {
+  const n = pts.length
+  const k = 0.42 // how far along each edge the rounding starts
+  let d = ''
+  for (let i = 0; i < n; i++) {
+    const v = pts[i]!
+    const p = pts[(i - 1 + n) % n]!
+    const q = pts[(i + 1) % n]!
+    if (sharp.includes(i)) {
+      d += `${i ? 'L' : 'M'}${f(v[0])} ${f(v[1])}`
+      continue
+    }
+    const a: [number, number] = [v[0] + (p[0] - v[0]) * k, v[1] + (p[1] - v[1]) * k]
+    const b: [number, number] = [v[0] + (q[0] - v[0]) * k, v[1] + (q[1] - v[1]) * k]
+    d += `${i ? 'L' : 'M'}${f(a[0])} ${f(a[1])}Q${f(v[0])} ${f(v[1])} ${f(b[0])} ${f(b[1])}`
+  }
+  return `${d}Z`
+}
+const line = (pts: [number, number][]) => `M${pts.map(([x, y]) => `${f(x)} ${f(y)}`).join('L')}`
+const curve = (a: [number, number], c: [number, number], b: [number, number]) => `M${f(a[0])} ${f(a[1])}Q${f(c[0])} ${f(c[1])} ${f(b[0])} ${f(b[1])}`
+
 /** A point on an arm's centre line: t = 0 at the shoulder, 1 at the wrist. */
 function armAt(b: Body, side: -1 | 1, t: number): [number, number] {
   const x0 = b.cx + side * (b.shoulder - b.arm * 0.2)
@@ -101,7 +126,7 @@ function armAt(b: Body, side: -1 | 1, t: number): [number, number] {
 const armW = (b: Body, t: number, ease = 0) => b.arm * (1 - 0.45 * t) + ease
 
 /** A band around the arm from t0 to t1 (a sleeve, or the bare arm). */
-function armBand(b: Body, side: -1 | 1, t0: number, t1: number, ease = 0, shoulderCap = true): string {
+function armBand(b: Body, side: -1 | 1, t0: number, t1: number, ease = 0, shoulderCap = true, rounded = false): string {
   const [ax, ay] = armAt(b, side, t0)
   const [bx, by] = armAt(b, side, t1)
   // Perpendicular to the arm direction.
@@ -119,14 +144,15 @@ function armBand(b: Body, side: -1 | 1, t0: number, t1: number, ease = 0, should
     [ax - nx * w0, ay - ny * w0],
   ]
   if (shoulderCap && t0 === 0) pts.push([b.cx + side * (b.shoulder - b.arm - 2), b.y.shoulder + 2])
-  return poly(pts)
+  // Sleeves get a rounded shoulder and crisp cuffs.
+  return rounded ? smooth(pts, [1, 2]) : poly(pts)
 }
 
 // ---------- the bare figure ----------
 
 export function bodyPaths(b: Body) {
   const { cx, y } = b
-  const torso = poly([
+  const torso = smooth([
     [cx - b.neck - 1, y.shoulder - 3],
     [cx - b.shoulder + 3, y.shoulder],
     [cx - b.shoulder, y.shoulder + 6],
@@ -141,9 +167,9 @@ export function bodyPaths(b: Body) {
     [cx + b.shoulder, y.shoulder + 6],
     [cx + b.shoulder - 3, y.shoulder],
     [cx + b.neck + 1, y.shoulder - 3],
-  ])
+  ], [6, 7])
   const leg = (side: -1 | 1) =>
-    poly([
+    smooth([
       [cx + side * 1.5, y.crotch - 4],
       [cx + side * b.hip, y.hip],
       [cx + side * (b.thigh + 5), (y.hip + y.knee) / 2],
@@ -151,7 +177,7 @@ export function bodyPaths(b: Body) {
       [cx + side * (b.ankle + 4), y.ankle],
       [cx + side * 2.5, y.ankle],
       [cx + side * 2.5, y.knee],
-    ])
+    ], [0, 4, 5])
   const arms = [-1, 1].map((s) => armBand(b, s as -1 | 1, 0, 1))
   const hands = [-1, 1].map((s) => {
     const [hx, hy] = armAt(b, s as -1 | 1, 1.06)
@@ -177,7 +203,8 @@ export function bodyPaths(b: Body) {
 
 // ---------- clothes ----------
 
-export type Shape = { d: string; layer: number; kind: 'fill' | 'line'; tone?: 'main' | 'accent' | 'dark' }
+/** 'fill' is cloth, 'line' a strap or chain, 'detail' a seam, fold or edge drawn thin over the cloth. */
+export type Shape = { d: string; layer: number; kind: 'fill' | 'line' | 'detail'; tone?: 'main' | 'accent' | 'dark' }
 
 const EASE = 1.08
 
@@ -186,7 +213,7 @@ const SLEEVE_T: Record<Exclude<Sleeves, 'none'>, number> = { short: 0.3, elbow: 
 
 function sleevesFor(b: Body, sleeves: Sleeves, ease: number): string[] {
   if (sleeves === 'none') return []
-  return [-1, 1].map((s) => armBand(b, s as -1 | 1, 0, SLEEVE_T[sleeves], ease))
+  return [-1, 1].map((s) => armBand(b, s as -1 | 1, 0, SLEEVE_T[sleeves], ease, true, true))
 }
 
 function bodyWidthAt(b: Body, yy: number, flare = 0): number {
@@ -202,19 +229,19 @@ function topShape(b: Body, bottom: number, sleeves: Sleeves, flare = 0, loose = 
   const e = EASE * loose
   const midY = Math.min(bottom, y.waist)
   const hemW = Math.max(bodyWidthAt(b, bottom, flare) * e + 2, b.figure === 'masculine' ? b.chest * 0.98 : 0)
-  const body = poly([
+  const body = smooth([
     [cx - b.neck - 2, y.shoulder - 3],
-    [cx - b.shoulder * 1.02, y.shoulder + 3],
+    [cx - b.shoulder * 1.05, y.shoulder - 0.5],
     [cx - b.chest * e, y.chest],
     [cx - bodyWidthAt(b, midY) * e, midY],
     [cx - hemW, bottom],
     [cx + hemW, bottom],
     [cx + bodyWidthAt(b, midY) * e, midY],
     [cx + b.chest * e, y.chest],
-    [cx + b.shoulder * 1.02, y.shoulder + 3],
+    [cx + b.shoulder * 1.05, y.shoulder - 0.5],
     [cx + b.neck + 2, y.shoulder - 3],
     [cx, y.shoulder + 7],
-  ])
+  ], [0, 4, 5, 9])
   return [...sleevesFor(b, sleeves, 1.8 * loose), body]
 }
 
@@ -222,35 +249,50 @@ function trouserShape(b: Body, to: 'ankle' | 'knee' | 'thigh', wide = 0): string
   const { cx, y } = b
   const end = to === 'ankle' ? y.ankle - 1 : to === 'knee' ? y.knee - 4 : y.hip + (y.knee - y.hip) * 0.35
   const t = (end - y.hip) / (y.ankle - y.hip)
-  const waist = poly([
-    [cx - b.waist * EASE, y.waist],
-    [cx + b.waist * EASE, y.waist],
-    [cx + b.hip * EASE, y.hip],
-    [cx + 1, y.crotch],
-    [cx - 1, y.crotch],
-    [cx - b.hip * EASE, y.hip],
-  ])
-  const leg = (side: -1 | 1) => {
-    const outer = b.hip * EASE + (b.ankle + 5 + wide - b.hip * EASE) * t
-    return poly([
-      [cx + side * 0.5, y.crotch - 3],
-      [cx + side * b.hip * EASE, y.hip],
-      [cx + side * (outer + 1), end],
-      [cx + side * Math.max(2, 3 - wide / 3), end],
-    ])
+  const hipW = Math.max(b.hip, b.waist) * EASE
+  // Outer edge narrows from the hip towards the hem (or flares for wide legs).
+  const outerAt = (tt: number) => hipW + (b.ankle + 5 + wide - hipW) * tt
+  const kneeT = (y.knee - y.hip) / (y.ankle - y.hip)
+  const hasKnee = end > y.knee + 4
+  const inner = Math.max(1.5, 2.5 - wide / 4)
+  // One continuous outline: waistband, down the outside of one leg, up the
+  // inside to the crotch, down the other leg and back up to the waist.
+  const pts: [number, number][] = []
+  const sharp: number[] = []
+  const add = (p: [number, number], isSharp = false) => {
+    if (isSharp) sharp.push(pts.length)
+    pts.push(p)
   }
-  return [waist, leg(-1), leg(1)]
+  add([cx - b.waist * EASE, y.waist], true)
+  add([cx - hipW, y.hip])
+  if (hasKnee) add([cx - outerAt(kneeT) - (wide > 6 ? 0 : 1.5), y.knee])
+  add([cx - outerAt(t) - 1, end], true)
+  add([cx - inner, end], true)
+  if (hasKnee) add([cx - inner - 1, y.knee])
+  add([cx, y.crotch + 1], true)
+  if (hasKnee) add([cx + inner + 1, y.knee])
+  add([cx + inner, end], true)
+  add([cx + outerAt(t) + 1, end], true)
+  if (hasKnee) add([cx + outerAt(kneeT) + (wide > 6 ? 0 : 1.5), y.knee])
+  add([cx + hipW, y.hip])
+  add([cx + b.waist * EASE, y.waist], true)
+  return [smooth(pts, sharp)]
 }
 
 function skirtShape(b: Body, from: number, to: number, flare: number): string {
   const { cx } = b
   const topW = bodyWidthAt(b, from) * EASE
-  return poly([
+  const hipY = Math.min(to, Math.max(from + 6, b.y.hip))
+  // Fitted at the hip, then falling out to the hem.
+  return smooth([
     [cx - topW, from],
     [cx + topW, from],
+    [cx + b.hip * EASE + flare * 0.15, hipY],
     [cx + b.hip * EASE + flare, to],
+    [cx, to + 1.5],
     [cx - b.hip * EASE - flare, to],
-  ])
+    [cx - b.hip * EASE - flare * 0.15, hipY],
+  ], [0, 1, 3, 5])
 }
 
 function layerShape(b: Body, bottom: number, sleeveless = false): string[] {
@@ -258,14 +300,15 @@ function layerShape(b: Body, bottom: number, sleeveless = false): string[] {
   const out: string[] = sleeveless ? [] : sleevesFor(b, 'long', 3.5)
   for (const side of [-1, 1] as const) {
     out.push(
-      poly([
+      smooth([
         [cx + side * (b.neck + 1), y.shoulder - 2],
         [cx + side * (b.shoulder * 1.07), y.shoulder + 2],
         [cx + side * (b.chest * 1.16), y.chest],
+        [cx + side * (bodyWidthAt(b, Math.min(bottom, y.waist)) * 1.16), Math.min(bottom, y.waist)],
         [cx + side * (Math.max(b.waist, b.hip) * 1.18 + (bottom > y.knee - 20 ? 6 : 0)), bottom],
         [cx + side * 3, bottom],
         [cx + side * 2, y.chest + 12],
-      ]),
+      ], [0, 4, 5, 6]),
     )
   }
   return out
@@ -291,12 +334,73 @@ function shoeShape(b: Body, kind: string): string[] {
   return out
 }
 
+/** Seams, edges and folds that make flat shapes read as clothes. */
+/** Tops that can be worn tucked into trousers or a skirt. */
+const TUCKABLE = new Set(['Shirt', 'Polo', 'Blouse', 'T-shirt', 'Sports tee'])
+
+export interface Wear {
+  /** Tucked into the bottoms (smart looks, or when a belt shows). */
+  tucked?: boolean
+}
+
+function details(b: Body, category: string, subtype: string, wear: Wear): string[] {
+  const { cx, y } = b
+  const neckV = (depth: number) => line([[cx - b.neck - 2, y.shoulder - 3], [cx, y.shoulder + depth], [cx + b.neck + 2, y.shoulder - 3]])
+  const crew = curve([cx - b.neck - 2, y.shoulder - 3], [cx, y.shoulder + 6], [cx + b.neck + 2, y.shoulder - 3])
+  const hemFolds = (from: number, to: number, spread: number) =>
+    [-0.45, 0, 0.45].map((k) => curve([cx + k * spread * 0.4, from], [cx + k * spread * 0.8 + 2, (from + to) / 2], [cx + k * spread, to - 1]))
+  const legCrease = (end: number) => [-1, 1].map((s) => line([[cx + s * (b.thigh * 0.55 + 2), y.hip + 8], [cx + s * (b.ankle + 3), end - 2]]))
+  const waistband = line([[cx - b.waist * EASE, y.waist + 4], [cx + b.waist * EASE, y.waist + 4]])
+  switch (category) {
+    case 'top':
+      if (subtype === 'Shirt' || subtype === 'Blouse' || subtype === 'Polo') {
+        return [neckV(10), line([[cx, y.shoulder + 10], [cx, wear.tucked ? y.waist + 2 : y.hip + 8]]), ...(subtype === 'Polo' ? [] : [line([[cx - b.neck - 3, y.shoulder - 2], [cx - 3, y.shoulder + 8]]), line([[cx + b.neck + 3, y.shoulder - 2], [cx + 3, y.shoulder + 8]])])]
+      }
+      if (subtype === 'Hoodie') return [curve([cx - b.neck - 5, y.shoulder - 4], [cx, y.shoulder + 14], [cx + b.neck + 5, y.shoulder - 4]), line([[cx - b.chest * 0.5, y.waist + 2], [cx + b.chest * 0.5, y.waist + 2]])]
+      return [crew]
+    case 'bottom':
+      if (subtype === 'Skirt') return [waistband, ...hemFolds(y.hip, y.knee + 4, b.hip)]
+      if (subtype === 'Shorts' || subtype === 'Leggings') return [waistband]
+      return [waistband, line([[cx, y.waist + 4], [cx, y.crotch - 4]]), ...legCrease(y.ankle)]
+    case 'outerwear':
+      return [line([[cx - b.neck - 1, y.shoulder - 2], [cx - b.chest * 0.45, y.chest + 2], [cx - 2, y.chest + 12]]), line([[cx + b.neck + 1, y.shoulder - 2], [cx + b.chest * 0.45, y.chest + 2], [cx + 2, y.chest + 12]])]
+    case 'dress':
+      if (subtype === 'Jumpsuit' || subtype === 'Co-ord set') return [crew, waistband, ...legCrease(y.ankle)]
+      return [crew, line([[cx - b.waist * EASE, y.waist + 2], [cx + b.waist * EASE, y.waist + 2]]), ...hemFolds(y.hip, subtype === 'Formal dress' ? y.ankle - 2 : y.knee + 6, b.hip + 12)]
+    case 'ethnic':
+      if (subtype === 'Kurta' || subtype === 'Kurti' || subtype === 'Sherwani' || subtype === 'Salwar suit') return [line([[cx, y.shoulder + 2], [cx, y.chest + 14]]), crew, ...hemFolds(y.hip + 6, subtype === 'Kurti' ? y.knee - 12 : y.knee, b.hip + 8)]
+      if (subtype === 'Lehenga' || subtype === 'Saree') return hemFolds(y.hip, y.ankle - 1, b.hip + 20)
+      return []
+    default:
+      return []
+  }
+}
+
 /** The clothing shapes for one garment on this body, drawn in its color. */
-export function garmentShapes(b: Body, category: string, subtype: string): Shape[] {
+export function garmentShapes(b: Body, category: string, subtype: string, wear: Wear = {}): Shape[] {
+  const w = { tucked: wear.tucked === true && category === 'top' && TUCKABLE.has(subtype) }
+  const all = garmentFills(b, category, subtype, w)
+  if (!all.length) return all
+  const top = Math.max(...all.map((s) => s.layer))
+  return [...all, ...details(b, category, subtype, w).map((d): Shape => ({ d, layer: top + 0.5, kind: 'detail', tone: 'dark' }))]
+}
+
+/** Whether a top should be drawn tucked in: smart outfits, or when a belt is worn. */
+export function tuckedLook(pieces: readonly { category: string; subtype: string; formality: number }[]): boolean {
+  const top = pieces.find((p) => p.category === 'top')
+  const bottom = pieces.find((p) => p.category === 'bottom')
+  if (!top || !bottom || !TUCKABLE.has(top.subtype) || bottom.subtype === 'Joggers' || bottom.subtype === 'Leggings') return false
+  const belt = pieces.some((p) => p.category === 'accessory' && p.subtype === 'Belt')
+  return belt || (top.formality >= 3 && top.subtype !== 'T-shirt' && top.subtype !== 'Sports tee')
+}
+
+function garmentFills(b: Body, category: string, subtype: string, wear: Wear): Shape[] {
   const S = (ds: string[], layer: number, tone: Shape['tone'] = 'main'): Shape[] => ds.map((d) => ({ d, layer, kind: 'fill', tone }))
   const { y, cx } = b
   switch (category) {
     case 'top': {
+      // Tucked: ends just below the waistband, and sits under the bottoms.
+      if (wear.tucked) return S(topShape(b, y.waist + 8, subtype === 'Shirt' || subtype === 'Blouse' ? 'long' : 'short'), 1)
       if (subtype === 'Sports bra') return S(topShape(b, y.chest + 16, 'none'), 3)
       if (subtype === 'Crop top') return S(topShape(b, y.waist - 6, 'short'), 3)
       if (subtype === 'Tank top') return S(topShape(b, y.hip + 4, 'none'), 3)

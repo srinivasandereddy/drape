@@ -3,25 +3,29 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { InstallBanner } from './components/InstallBanner'
 import { SyncBadge } from './components/SyncBadge'
 import { useToast } from './components/toastContext'
+import { Tour } from './components/Tour'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useAccount, type Account } from './lib/account'
 import { reload } from './lib/closet'
 import { discardLegacy, importLegacy, legacyPieceCount } from './lib/db'
 import { prefs } from './lib/platform'
-import { useProfile } from './lib/profile'
+import { saveProfile, useProfile } from './lib/profile'
+import { updateReminder } from './lib/reminder'
 import { startSync, useSync } from './lib/syncStore'
 import { AddSheet } from './screens/AddSheet'
 import { ClosetScreen } from './screens/ClosetScreen'
 import { GarmentSheet } from './screens/GarmentSheet'
 import { LinkAddSheet, type SharedLink } from './screens/LinkAddSheet'
+import type { WizardStep } from './lib/wizardSteps'
 import { ProfileWizard } from './screens/ProfileWizard'
 import { QuickAddSheet } from './screens/QuickAddSheet'
 import { SettingsSheet } from './screens/SettingsSheet'
 import { AssistantSheet } from './screens/AssistantSheet'
+import { BulkAddSheet } from './screens/BulkAddSheet'
 import { SignInScreen } from './screens/SignInScreen'
 import { SpectrumScreen } from './screens/SpectrumScreen'
 import { TodayScreen } from './screens/TodayScreen'
-import { TripEditor, TripSheet, TripsScreen, type TripPrefill } from './screens/TripsScreens'
+import { TripEditor, TripSheet, TripsScreen, type PlansView, type TripPrefill } from './screens/TripsScreens'
 
 type Tab = 'today' | 'closet' | 'spectrum' | 'trips'
 const TABS: readonly Tab[] = ['today', 'closet', 'spectrum', 'trips']
@@ -41,11 +45,13 @@ function SignedIn({ account }: { account: Account }) {
   })
   const [adding, setAdding] = useState(false)
   const [quickAdding, setQuickAdding] = useState(false)
+  const [bulkAdding, setBulkAdding] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [wizard, setWizard] = useState<{ step: number } | null>(null)
+  const [wizard, setWizard] = useState<{ step: WizardStep } | null>(null)
   const [autoWizardDone, setAutoWizardDone] = useState(false)
   const [asking, setAsking] = useState(false)
+  const [plansView, setPlansView] = useState<PlansView>('calendar')
   // A product link shared to Drape (Android share sheet) arrives as ?url=…&text=…&title=…
   const [linkAdd, setLinkAdd] = useState<SharedLink | null>(() => {
     const q = new URLSearchParams(location.search)
@@ -65,6 +71,14 @@ function SignedIn({ account }: { account: Account }) {
     return () => startSync(null)
   }, [account.sub])
 
+  // The morning reminder greets by first name and uses the home city's forecast.
+  const firstName = profile.name.split(' ')[0] ?? ''
+  const lat = profile.city?.latitude ?? null
+  const lon = profile.city?.longitude ?? null
+  useEffect(() => {
+    void updateReminder({ name: firstName, latitude: lat, longitude: lon }).catch(() => {})
+  }, [firstName, lat, lon])
+
   // Apply the person's chosen colors.
   useEffect(() => {
     document.documentElement.dataset.look = profile.theme
@@ -76,8 +90,11 @@ function SignedIn({ account }: { account: Account }) {
   const needsWizard = loaded && firstDone && !profile.onboarded && !autoWizardDone
   if (needsWizard) {
     setAutoWizardDone(true)
-    setWizard({ step: 0 })
+    setWizard({ step: 'about' })
   }
+
+  // A short tour once the profile is set up (and not while the wizard is open).
+  const showTour = loaded && profile.onboarded && !profile.tourDone && !wizard
 
   const setTab = (t: Tab) => {
     setTabState(t)
@@ -93,7 +110,7 @@ function SignedIn({ account }: { account: Account }) {
   const closeQuick = useCallback(() => setQuickAdding(false), [])
   const closeGarment = useCallback(() => setOpenId(null), [])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
-  const editProfile = useCallback((step = 0) => setWizard({ step }), [])
+  const editProfile = useCallback((step: WizardStep = 'about') => setWizard({ step }), [])
   const closeWizard = useCallback(() => setWizard(null), [])
   const closeTrip = useCallback(() => setOpenTripId(null), [])
   const planTrip = useCallback((prefill: TripPrefill = {}) => {
@@ -117,10 +134,20 @@ function SignedIn({ account }: { account: Account }) {
         <UpdateBanner />
         <InstallBanner />
         <LegacyImport email={account.email} />
-        {tab === 'today' && <TodayScreen onAdd={openAdd} onQuickAdd={openQuick} onEditProfile={() => editProfile(0)} />}
+        {tab === 'today' && (
+          <TodayScreen
+            onAdd={openAdd}
+            onQuickAdd={openQuick}
+            onEditProfile={() => editProfile('about')}
+            onOpenPlans={(v) => {
+              setPlansView(v)
+              setTab('trips')
+            }}
+          />
+        )}
         {tab === 'closet' && <ClosetScreen onOpen={setOpenId} onAdd={openAdd} onQuickAdd={openQuick} />}
         {tab === 'spectrum' && <SpectrumScreen onOpen={setOpenId} />}
-        {tab === 'trips' && <TripsScreen onPlan={() => planTrip()} onOpen={setOpenTripId} />}
+        {tab === 'trips' && <TripsScreen onPlan={() => planTrip()} onOpen={setOpenTripId} onOpenPiece={setOpenId} view={plansView} onView={setPlansView} />}
       </main>
 
       <button type="button" className="ask-fab" onClick={() => setAsking(true)} aria-label="Ask Drape, your stylist assistant">
@@ -133,10 +160,11 @@ function SignedIn({ account }: { account: Account }) {
         <button type="button" className="tab-plus" aria-label="Add a piece" onClick={openAdd}>
           <Plus size={28} aria-hidden="true" />
         </button>
-        <TabButton label="Spectrum" icon={<Palette size={22} aria-hidden="true" />} active={tab === 'spectrum'} onClick={() => setTab('spectrum')} />
-        <TabButton label="Trips" icon={<Luggage size={22} aria-hidden="true" />} active={tab === 'trips'} onClick={() => setTab('trips')} />
+        <TabButton label="Insights" icon={<Palette size={22} aria-hidden="true" />} active={tab === 'spectrum'} onClick={() => setTab('spectrum')} />
+        <TabButton label="Plans" icon={<Luggage size={22} aria-hidden="true" />} active={tab === 'trips'} onClick={() => setTab('trips')} />
       </nav>
 
+      {showTour && <Tour onDone={() => void saveProfile({ tourDone: true })} />}
       {asking && <AssistantSheet onClose={() => setAsking(false)} onOpenPiece={setOpenId} onPlanTrip={planTrip} />}
       {tripEditor && (
         <TripEditor
@@ -145,6 +173,7 @@ function SignedIn({ account }: { account: Account }) {
           onSaved={(id) => {
             setTripEditor(null)
             setTab('trips')
+            setPlansView('trips')
             setOpenTripId(id)
           }}
         />
@@ -158,8 +187,13 @@ function SignedIn({ account }: { account: Account }) {
             setAdding(false)
             setLinkAdd({})
           }}
+          onBulk={() => {
+            setAdding(false)
+            setBulkAdding(true)
+          }}
         />
       )}
+      {bulkAdding && <BulkAddSheet onClose={() => setBulkAdding(false)} />}
       {linkAdd && <LinkAddSheet shared={linkAdd} onClose={() => setLinkAdd(null)} />}
       {quickAdding && <QuickAddSheet onClose={closeQuick} />}
       {settingsOpen && <SettingsSheet onClose={closeSettings} onEditProfile={editProfile} />}

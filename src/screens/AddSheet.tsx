@@ -6,12 +6,13 @@ import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
 import { addGarment } from '../lib/closet'
 import { extractColorsFromBlob } from '../lib/color'
-import { emptyDraft, validateDraft, type GarmentDraft } from '../lib/model'
+import { defaultFormality } from '../lib/catalog'
+import { emptyDraft, sanitizeDraft, validateDraft, type GarmentDraft } from '../lib/model'
 import { usePreparedPhoto } from '../lib/usePreparedPhoto'
 
-type Props = { onClose: () => void; onTypeList: () => void; onLink: () => void }
+type Props = { onClose: () => void; onTypeList: () => void; onLink: () => void; onBulk: () => void }
 
-export function AddSheet({ onClose, onTypeList, onLink }: Props) {
+export function AddSheet({ onClose, onTypeList, onLink, onBulk }: Props) {
   const toast = useToast()
   const cameraInput = useRef<HTMLInputElement>(null)
   const galleryInput = useRef<HTMLInputElement>(null)
@@ -36,6 +37,17 @@ export function AddSheet({ onClose, onTypeList, onLink }: Props) {
         if (token === colorToken.current) setColorStatus("Couldn't read colors from this photo. Add them by hand.")
       })
   })
+
+  // Pre-select the type Drape guessed from the outline, unless the person already chose one.
+  // (Adjusted during render when a new guess arrives, as React recommends, not in an effect.)
+  const guess = photo.guess
+  const [seenGuess, setSeenGuess] = useState<typeof guess>(null)
+  if (guess !== seenGuess) {
+    setSeenGuess(guess)
+    if (guess && guess.confidence >= 0.5) {
+      setDraft((d) => (d.category ? d : sanitizeDraft({ ...d, category: guess.category, subtype: guess.subtype, formality: defaultFormality(guess.subtype) })))
+    }
+  }
 
   function onFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -83,6 +95,13 @@ export function AddSheet({ onClose, onTypeList, onLink }: Props) {
           <button type="button" className="big-pick" onClick={() => galleryInput.current?.click()} disabled={photo.processing}>
             <Images size={28} aria-hidden="true" />
             <span>Choose from gallery</span>
+          </button>
+          <button type="button" className="big-pick" onClick={onBulk} disabled={photo.processing}>
+            <Images size={28} aria-hidden="true" />
+            <span>
+              Add many photos at once
+              <span className="big-pick-hint">Up to 30: backgrounds removed and types guessed for you</span>
+            </span>
           </button>
           <button type="button" className="big-pick" onClick={onLink} disabled={photo.processing}>
             <Link2 size={28} aria-hidden="true" />

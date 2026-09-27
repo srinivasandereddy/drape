@@ -1,23 +1,29 @@
 // The outfit engine. Builds complete outfits from the closet and scores them out of 100.
 //
-//   part            casual/travel   work/evening/festive
-//   color harmony        40               30
-//   weather/thermal      20               20
-//   dress code           15               25
-//   style / vibe         10               10    (moves to harmony when no style is set)
-//   body (dosha)          5                5    (moves to harmony when no dosha result)
-//   freshness            10               10
+//   part            casual/travel   work/evening/festive   workout
+//   color harmony        27               21                 10
+//   weather/thermal      18               18                 20
+//   dress code           13               22                 32
+//   goes together        10               12                  8    (dressiness, clashes, prints)
+//   style / vibe          9                8                 12    (moves to harmony when no style is set)
+//   body (dosha)          4                4                  4    (moves to harmony when no dosha result)
+//   made for you          9                6                  4    (moves to harmony when no personal details)
+//   freshness            10                9                 10
 //
-// Then learned taste (Love it / Don't like) adds or removes up to 8 points.
+// Each clash (running shoes with a saree…) costs 8 more points, so it never ranks first.
+// Then learned taste (Love it / Don't like, and what you actually wore) adds or
+// removes up to 8 points; a top and bottom worn together in the last week lose 4.
 // Pure functions only, so every rule is covered by tests.
 
 import { FORMALITY_LABELS, METAL_LABELS, type Formality, type Metal } from './catalog'
-import { colorName } from './color'
+import { colorName, hexToLab } from './color'
 import { DOSHA_GUIDE, type DoshaId } from './dosha'
 import { affinityPoints, NO_ADJUST, pairKey, type Affinity, type DayAdjust } from './feedback'
 import { harmonyOf, type Harmony } from './harmony'
 import { displayName, dominantHex, type Garment } from './model'
+import { bodyShapeDef, hasPersonal, SEASONS, type PersonalPrefs } from './personal'
 import { routineDef, type RoutineId } from './profile'
+import { pairingScore } from './styling'
 import { CLOTHING, MAIN, SLOT_ORDER, slotOf, VISIBLE, type Slot } from './slots'
 import { styleDef, styleFit, type StyleId } from './styles'
 import { thermalIndex, type Feeling, type Thermal } from './thermal'
@@ -55,6 +61,8 @@ export interface OutfitContext {
   preferShoes?: string[]
   /** Trip packing: pieces already in the suitcase get a small bonus, to keep it light. */
   preferIds?: string[]
+  /** Color season, favourite and avoided colors and patterns, body shape. */
+  personal?: PersonalPrefs | null
 }
 
 export interface Outfit {
@@ -63,7 +71,10 @@ export interface Outfit {
   score: number
   harmony: Harmony
   thermal: Thermal
-  parts: { harmony: number; weather: number; occasion: number; style: number | null; body: number | null; freshness: number }
+  parts: { harmony: number; weather: number; occasion: number; pairing: number; style: number | null; body: number | null; you: number | null; freshness: number }
+  /** Pieces that don't belong together, and other styling notes. */
+  clashes: string[]
+  styleNotes: string[]
   /** Past feedback liked this pairing. */
   loved: boolean
   /** Points per part, for the "How was this scored?" panel. */
@@ -153,7 +164,11 @@ function occasionScore(pieces: Garment[], ctx: OutfitContext): number {
     const d = p.formality - target
     return 1 - Math.min(1, d < 0 ? -d / 1.5 : d / 2.5)
   })
-  let score = fit.length ? 0.6 * Math.min(...fit) + 0.4 * avg(fit, 0.6) : 0.6
+  // The top (what people see across a desk) sets the tone more than the shoes.
+  const weightOf = (p: Garment) => (['top', 'onepiece', 'layer'].includes(slotOf(p)) ? 1.5 : slotOf(p) === 'footwear' ? 0.75 : 1)
+  const totalW = judged.reduce((a, p) => a + weightOf(p), 0)
+  const weighted = totalW ? judged.reduce((a, p, i) => a + weightOf(p) * fit[i]!, 0) / totalW : 0.6
+  let score = fit.length ? 0.45 * Math.min(...fit) + 0.55 * weighted : 0.6
   const shoes = pieces.find((p) => slotOf(p) === 'footwear')
   if (ctx.occasion === 'festive' && pieces.some((p) => p.category === 'ethnic')) score += 0.15
   if (ctx.occasion === 'travel' && shoes && ['Sneakers', 'Loafers', 'Sandals'].includes(shoes.subtype)) score += 0.1
@@ -196,6 +211,45 @@ function bodyScore(pieces: Garment[], dosha: DoshaId | null | undefined): number
   return clamp01(0.5 * fabric + 0.5 * color)
 }
 
+const NEAR_FACE = new Set(['top', 'onepiece', 'layer'])
+
+/** Colors that flatter the person's coloring, their own likes and dislikes, and body-shape balance. */
+function youScore(pieces: Garment[], p: PersonalPrefs | null | undefined): number | null {
+  if (!hasPersonal(p)) return null
+  const visible = pieces.filter((x) => VISIBLE.includes(slotOf(x)))
+  let score = 0.6
+  const season = p.season ? SEASONS[p.season] : null
+  for (const g of visible) {
+    const name = nameOf(g)
+    if (season && name && NEAR_FACE.has(slotOf(g))) {
+      if (season.best.includes(name)) score += 0.15
+      if (season.avoid.includes(name)) score -= 0.15
+    }
+    for (const c of g.colors) {
+      const n = colorName(c.hex)
+      if (p.avoidColors.includes(n)) score -= 0.35 * Math.max(0.5, c.share)
+      if (p.favoriteColors.includes(n)) score += 0.12 * Math.max(0.5, c.share)
+    }
+    if (g.pattern && g.pattern !== 'solid') {
+      if (p.avoidPatterns.includes(g.pattern)) score -= 0.3
+      if (p.lovePatterns.includes(g.pattern)) score += 0.1
+    }
+  }
+  // Body-shape balance: which half should be lighter.
+  const shape = bodyShapeDef(p.bodyShape)
+  const top = visible.find((x) => slotOf(x) === 'top')
+  const bottom = visible.find((x) => slotOf(x) === 'bottom')
+  if (shape && shape.balance !== 'even' && top && bottom && dominantHex(top) && dominantHex(bottom)) {
+    const lt = hexToLab(dominantHex(top)!)[0]
+    const lb = hexToLab(dominantHex(bottom)!)[0]
+    const topLighter = lt > lb + 8
+    const bottomLighter = lb > lt + 8
+    if (shape.balance === 'top-lighter') score += topLighter ? 0.12 : bottomLighter ? -0.08 : 0
+    if (shape.balance === 'bottom-lighter') score += bottomLighter ? 0.12 : topLighter ? -0.08 : 0
+  }
+  return clamp01(score)
+}
+
 function freshnessScore(pieces: Garment[], now: Date): number {
   const judged = pieces.filter((p) => VISIBLE.includes(slotOf(p)))
   return avg(
@@ -211,6 +265,13 @@ function freshnessScore(pieces: Garment[], now: Date): number {
   )
 }
 
+/** Points per part (each set adds up to 100). Also shown in the "How Drape picks outfits" guide. */
+export const WEIGHTS = {
+  casual: { harmony: 27, weather: 18, occasion: 13, pairing: 10, style: 9, body: 4, you: 9, freshness: 10 },
+  dressy: { harmony: 21, weather: 18, occasion: 22, pairing: 12, style: 8, body: 4, you: 6, freshness: 9 },
+  workout: { harmony: 10, weather: 20, occasion: 32, pairing: 8, style: 12, body: 4, you: 4, freshness: 10 },
+} as const
+
 export function scoreOutfit(pieces: Garment[], ctx: OutfitContext, thermal: Thermal = thermalFor(ctx)): Outfit {
   const visible = pieces.filter((p) => VISIBLE.includes(slotOf(p)))
   const colors = visible.map(dominantHex).filter((h): h is string => h !== null)
@@ -219,35 +280,37 @@ export function scoreOutfit(pieces: Garment[], ctx: OutfitContext, thermal: Ther
     colors.length > 0
       ? harmonyOf(colors, patterned)
       : { score: 0.7, kind: 'neutral' as const, label: 'Colors unknown', reason: 'Colors are still being read from the photos.' }
+  const pairing = pairingScore(pieces, ctx.occasion, ctx.weather)
   const parts = {
     harmony: harmony.score,
     weather: weatherScore(pieces, ctx.weather, thermal),
     occasion: occasionScore(pieces, ctx),
+    pairing: pairing.score,
     style: styleScore(pieces, ctx),
     body: bodyScore(pieces, ctx.dosha),
+    you: youScore(pieces, ctx.personal),
     freshness: freshnessScore(pieces, ctx.now),
   }
   // Dress code matters more when there is one (office, evening, festive).
   const strict = ctx.occasion === 'work' || ctx.occasion === 'evening' || ctx.occasion === 'festive'
   // Workouts care about function first: the right gear, then comfort for the weather.
-  const w =
-    ctx.occasion === 'active'
-      ? { harmony: 15, weather: 20, occasion: 35, style: 15, body: 5, freshness: 10 }
-      : strict
-        ? { harmony: 30, weather: 20, occasion: 25, style: 10, body: 5, freshness: 10 }
-        : { harmony: 40, weather: 20, occasion: 15, style: 10, body: 5, freshness: 10 }
+  const w = ctx.occasion === 'active' ? WEIGHTS.workout : strict ? WEIGHTS.dressy : WEIGHTS.casual
   let harmonyWeight = w.harmony
   if (parts.style === null) harmonyWeight += w.style
   if (parts.body === null) harmonyWeight += w.body
+  if (parts.you === null) harmonyWeight += w.you
   let score =
     harmonyWeight * parts.harmony +
     w.weather * parts.weather +
     w.occasion * parts.occasion +
+    w.pairing * parts.pairing +
     (parts.style ?? 0) * w.style +
     (parts.body ?? 0) * w.body +
+    (parts.you ?? 0) * w.you +
     w.freshness * parts.freshness
 
-  const { points, loved } = affinityPoints(visible, ctx.affinity ?? null)
+  score -= 8 * pairing.clashes.length
+  const { points, loved } = affinityPoints(visible, ctx.affinity ?? null, ctx.now)
   score += points
   if (ctx.preferIds?.length) {
     const reused = visible.filter((p) => ctx.preferIds!.includes(p.id) && ['bottom', 'footwear', 'layer'].includes(slotOf(p))).length
@@ -265,23 +328,31 @@ export function scoreOutfit(pieces: Garment[], ctx: OutfitContext, thermal: Ther
     { label: 'Color harmony', about: harmony.label, points: r(harmonyWeight * parts.harmony), max: harmonyWeight },
     { label: 'Weather', about: `Thermal index ${thermal.index}/5`, points: r(w.weather * parts.weather), max: w.weather },
     { label: 'Dress code', about: `Right dressiness for ${OCCASIONS.find((o) => o.id === ctx.occasion)?.label.toLowerCase() ?? ctx.occasion}`, points: r(w.occasion * parts.occasion), max: w.occasion },
+    {
+      label: 'Goes together',
+      about: pairing.clashes.length ? `${pairing.clashes.join('; ')} (−${8 * pairing.clashes.length} more)` : 'Same dressiness, no clashing pieces or prints',
+      points: r(w.pairing * parts.pairing),
+      max: w.pairing,
+    },
   ]
   if (parts.style !== null) breakdown.push({ label: 'Your style', about: 'Matches your styles and colors', points: r(w.style * parts.style), max: w.style })
   if (parts.body !== null) breakdown.push({ label: 'Body comfort', about: 'Dosha-friendly fabrics and colors', points: r(w.body * parts.body), max: w.body })
+  if (parts.you !== null) breakdown.push({ label: 'Made for you', about: 'Your color season, favourite colors and shape', points: r(w.you * parts.you), max: w.you })
   breakdown.push({ label: 'Freshness', about: 'Not worn in the last few days', points: r(w.freshness * parts.freshness), max: w.freshness })
-  if (points !== 0) breakdown.push({ label: 'Your feedback', about: points > 0 ? 'You liked pieces or pairings like these' : 'You disliked something similar', points, max: 8 })
+  if (points !== 0) breakdown.push({ label: 'Your history', about: points > 0 ? 'You liked or wore pairings like these' : 'You disliked something similar, or wore this pair this week', points, max: 8 })
 
   const ordered = [...pieces].sort((a, b) => SLOT_ORDER.indexOf(slotOf(a)) - SLOT_ORDER.indexOf(slotOf(b)))
-  return { pieces: ordered, score: Math.max(0, Math.min(100, Math.round(score))), harmony, thermal, parts, loved, breakdown }
+  return { pieces: ordered, score: Math.max(0, Math.min(100, Math.round(score))), harmony, thermal, parts, loved, breakdown, clashes: pairing.clashes, styleNotes: pairing.notes }
 }
 
 // ---------- building outfits ----------
 
-/** Pieces allowed today: anything not ruled out by today's feedback. */
+/** Pieces allowed today: in the closet (not in the wash, lent, donated or wishlist) and not ruled out by today's feedback. */
 export function allowedPieces(garments: Garment[], ctx: OutfitContext): Garment[] {
   const adj = ctx.adjust ?? NO_ADJUST
   return garments.filter(
     (g) =>
+      (g.status ?? 'available') === 'available' &&
       !adj.avoidIds.includes(g.id) &&
       !adj.avoidSubtypes.includes(g.subtype),
   )
@@ -469,6 +540,8 @@ const WORK_PHRASE: Record<RoutineId, string> = {
   creative: 'a creative workplace',
 }
 
+const visibleNames = (pieces: Garment[]) => pieces.filter((p) => VISIBLE.includes(slotOf(p))).flatMap((p) => p.colors.map((c) => colorName(c.hex)))
+
 const join = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
 
 export function explain(outfit: Outfit, ctx: OutfitContext): string[] {
@@ -484,6 +557,10 @@ export function explain(outfit: Outfit, ctx: OutfitContext): string[] {
   lines.push(`${first}.`)
 
   lines.push(outfit.harmony.reason)
+  for (const c of outfit.clashes) lines.push(`Heads up: ${c.toLowerCase()} don't usually go together.`)
+  // The most useful styling note (dressiness, prints or weather colors).
+  const note = outfit.styleNotes.find((n) => !n.startsWith('Every piece')) ?? outfit.styleNotes[0]
+  if (note) lines.push(note)
 
   const target = Math.round(ctxFormality(ctx)) as Formality
   const what = ctx.occasion === 'work' ? WORK_PHRASE[ctx.routine ?? 'business-casual'] : OCCASION_PHRASE[ctx.occasion]
@@ -497,6 +574,18 @@ export function explain(outfit: Outfit, ctx: OutfitContext): string[] {
   }
   if (ctx.wishColors?.length && outfit.pieces.some((p) => p.colors.some((c) => ctx.wishColors!.includes(colorName(c.hex))))) {
     lines.push(`Includes the ${join(ctx.wishColors.map((c) => c.toLowerCase()))} you wanted.`)
+  }
+
+  const personal = ctx.personal
+  if (personal && outfit.parts.you !== null) {
+    const nearFace = outfit.pieces.filter((p) => NEAR_FACE.has(slotOf(p)))
+    const season = personal.season ? SEASONS[personal.season] : null
+    const flatter = season ? nearFace.map(nameOf).filter((n): n is string => !!n && season.best.includes(n)) : []
+    if (season && flatter.length) lines.push(`${[...new Set(flatter)].join(' and ')} ${flatter.length > 1 ? 'flatter' : 'flatters'} your ${season.label} coloring.`)
+    const fav = [...new Set(visibleNames(outfit.pieces).filter((n) => personal.favoriteColors.includes(n)))]
+    if (fav.length) lines.push(`Includes ${fav.map((n) => n.toLowerCase()).join(' and ')}, ${fav.length > 1 ? 'two of your favourites' : 'one of your favourites'}.`)
+    const shape = bodyShapeDef(personal.bodyShape)
+    if (shape && shape.balance !== 'even') lines.push(shape.tip)
   }
 
   if (ctx.dosha && outfit.parts.body !== null && outfit.parts.body >= 0.7) {

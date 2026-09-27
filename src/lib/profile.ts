@@ -3,10 +3,12 @@
 // wizard needs to finish.
 
 import { useEffect, useSyncExternalStore } from 'react'
-import { METAL_LABELS, type Formality, type Metal } from './catalog'
+import { METAL_LABELS, PATTERN_LABELS, type Formality, type Metal, type Pattern } from './catalog'
+import { PALETTE } from './color'
 import { markChanged } from './changes'
 import { getDb } from './db'
 import { DOSHA_ORDER, DOSHA_QUESTIONS, scoreDosha, type DoshaId, type DoshaResult } from './dosha'
+import { EYE_COLORS, FITS, HAIR_COLORS, SKIN_TONES, bodyShapesFor, seasonFor, type EyeColor, type Fit, type HairColor, type PersonalPrefs, type SkinTone, type Undertone } from './personal'
 import { STYLE_IDS, type StyleId } from './styles'
 import type { City } from './weather'
 
@@ -47,9 +49,31 @@ export interface Profile {
   metal: { kind: Metal | null; custom: string }
   theme: ThemeId
   dosha: DoshaResult | null
+  skinTone: SkinTone | null
+  undertone: Undertone | null
+  hair: HairColor | null
+  eyes: EyeColor | null
+  bodyShape: string | null
+  fit: Fit | null
+  /** Palette color names. */
+  favoriteColors: string[]
+  avoidColors: string[]
+  lovePatterns: Pattern[]
+  avoidPatterns: Pattern[]
+  sizes: { top: string; bottom: string; shoe: string }
+  /** Usual spend on one piece, for the shopping advisor. */
+  budget: number | null
+  currency: Currency
+  /** Morning outfit reminder (Android). */
+  reminder: { enabled: boolean; hour: number }
   /** True once the setup wizard was finished (or skipped) on this account. */
   onboarded: boolean
+  /** True once the welcome tour was seen. */
+  tourDone: boolean
 }
+
+export type Currency = 'INR' | 'USD' | 'GBP' | 'EUR' | 'AED'
+export const CURRENCIES: readonly Currency[] = ['INR', 'USD', 'GBP', 'EUR', 'AED']
 
 export const EMPTY_PROFILE: Profile = {
   name: '',
@@ -63,7 +87,22 @@ export const EMPTY_PROFILE: Profile = {
   metal: { kind: null, custom: '' },
   theme: 'classic',
   dosha: null,
+  skinTone: null,
+  undertone: null,
+  hair: null,
+  eyes: null,
+  bodyShape: null,
+  fit: null,
+  favoriteColors: [],
+  avoidColors: [],
+  lovePatterns: [],
+  avoidPatterns: [],
+  sizes: { top: '', bottom: '', shoe: '' },
+  budget: null,
+  currency: 'INR',
+  reminder: { enabled: false, hour: 7 },
   onboarded: false,
+  tourDone: false,
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -99,7 +138,64 @@ export function normalizeProfile(raw: unknown): Profile {
     metal: { kind: typeof m.kind === 'string' && Object.hasOwn(METAL_LABELS, m.kind) ? (m.kind as Metal) : null, custom: str(m.custom, 40) },
     theme: THEMES.some((t) => t.id === raw.theme) ? (raw.theme as ThemeId) : 'classic',
     dosha: normalizeDosha(raw.dosha),
+    skinTone: oneOf(raw.skinTone, SKIN_TONES.map((x) => x.id)),
+    undertone: oneOf(raw.undertone, ['warm', 'cool', 'neutral'] as const),
+    hair: oneOf(raw.hair, HAIR_COLORS.map((x) => x.id)),
+    eyes: oneOf(raw.eyes, EYE_COLORS.map((x) => x.id)),
+    bodyShape: typeof raw.bodyShape === 'string' && bodyShapesFor(null).some((b) => b.id === raw.bodyShape) ? raw.bodyShape : null,
+    fit: oneOf(raw.fit, FITS.map((x) => x.id)),
+    favoriteColors: colorNames(raw.favoriteColors),
+    avoidColors: colorNames(raw.avoidColors),
+    lovePatterns: patterns(raw.lovePatterns),
+    avoidPatterns: patterns(raw.avoidPatterns),
+    sizes: { top: str(isObj(raw.sizes) ? raw.sizes.top : '', 12), bottom: str(isObj(raw.sizes) ? raw.sizes.bottom : '', 12), shoe: str(isObj(raw.sizes) ? raw.sizes.shoe : '', 12) },
+    budget: numIn(raw.budget, 0, 10_000_000),
+    currency: CURRENCIES.includes(raw.currency as Currency) ? (raw.currency as Currency) : 'INR',
+    reminder: {
+      enabled: isObj(raw.reminder) && raw.reminder.enabled === true,
+      hour: (isObj(raw.reminder) ? numIn(raw.reminder.hour, 4, 12) : null) ?? 7,
+    },
     onboarded: raw.onboarded === true,
+    tourDone: raw.tourDone === true,
+  }
+}
+
+function oneOf<T extends string>(v: unknown, options: readonly T[]): T | null {
+  return typeof v === 'string' && (options as readonly string[]).includes(v) ? (v as T) : null
+}
+const PALETTE_NAMES = PALETTE.map((p) => p.name)
+function colorNames(v: unknown): string[] {
+  return Array.isArray(v) ? [...new Set(v.filter((c): c is string => typeof c === 'string' && PALETTE_NAMES.includes(c)))].slice(0, 12) : []
+}
+function patterns(v: unknown): Pattern[] {
+  return Array.isArray(v) ? [...new Set(v.filter((p): p is Pattern => typeof p === 'string' && Object.hasOwn(PATTERN_LABELS, p)))] : []
+}
+
+/** The personal color and shape preferences the outfit engine uses. */
+export function personalPrefs(p: Profile): PersonalPrefs {
+  return {
+    season: seasonFor(p.skinTone, p.undertone, p.hair, p.eyes),
+    favoriteColors: p.favoriteColors,
+    avoidColors: p.avoidColors,
+    lovePatterns: p.lovePatterns,
+    avoidPatterns: p.avoidPatterns,
+    bodyShape: p.bodyShape,
+  }
+}
+
+/** Jewellery metal to use: the person's choice, or the one their color season suits. */
+export function preferredMetal(p: Profile): Metal | null {
+  if (p.metal.kind) return p.metal.kind
+  const season = seasonFor(p.skinTone, p.undertone, p.hair, p.eyes)
+  return season ? (season === 'spring' || season === 'autumn' ? 'gold' : 'silver') : null
+}
+
+/** Formats money in the person's currency, e.g. ₹1,299. */
+export function money(p: Pick<Profile, 'currency'>, amount: number): string {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency, maximumFractionDigits: 0 }).format(amount)
+  } catch {
+    return `${p.currency} ${Math.round(amount)}`
   }
 }
 

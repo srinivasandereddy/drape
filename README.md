@@ -37,21 +37,26 @@ Then open http://localhost:5173. Google sign-in needs `VITE_GOOGLE_CLIENT_ID` in
 6. Sync and backup: each person's closet, photos, profile, trips and history in step across their phones through their own Drive (v0.5) — done
 7. Trips with per-day weather, outfits and packing checklist; Ask Drape offline assistant; styles by gender plus activities; score breakdown (v0.6) — done
 8. Background removal on the phone, add from a shop link (and Android share), mannequin preview, in-app guide to suggestions (v0.8) — done
+9. More personal (v0.9): skin tone, undertone and color season, body shape, favourite and avoided colors and patterns, sizes and budget; laundry and availability; price and cost per wear; insights; outfit calendar and plans; festival and event planner; share an outfit picture; shopping advisor and wishlist; bulk add with type guessing; mannequin that wears each piece's own fabric; styling rules (clashes, dressiness, prints) and learning from what you wear; morning reminder (Android); new icon and first-run tour — done
 
 ## How outfits are scored
 
 Each idea is built from your own closet (top + bottom, or a one-piece, plus shoes, then a layer, bag, jewellery and accessories when they fit) and scored out of 100:
 
-| Part | Casual, travel | Work, evening, festive |
-|---|---|---|
-| Color harmony (color wheel rules) | 40 | 30 |
-| Weather and thermal index (feels-like + dosha + today's feeling) | 20 | 20 |
-| Dress code for the occasion, routine and typed plans | 15 | 25 |
-| Style / vibe (tropes, wished-for colors) | 10 | 10 |
-| Body (dosha fabrics and colors) | 5 | 5 |
-| Freshness (not worn in the last few days) | 10 | 10 |
+| Part | Casual, travel | Work, evening, festive | Workout |
+|---|---|---|---|
+| Color harmony (color wheel rules) | 27 | 21 | 10 |
+| Weather and thermal index (feels-like + dosha + today's feeling) | 18 | 18 | 20 |
+| Dress code for the occasion, routine and typed plans (the top counts most) | 13 | 22 | 32 |
+| Goes together (same dressiness, no clashing kinds, one print, heat and rain colors) | 10 | 12 | 8 |
+| Style / vibe (tropes, wished-for colors) | 9 | 8 | 12 |
+| Made for you (color season, favourite and avoided colors and patterns, body shape) | 9 | 6 | 4 |
+| Body (dosha fabrics and colors) | 4 | 4 | 4 |
+| Freshness (not worn in the last few days) | 10 | 9 | 10 |
 
-Style and body points move to harmony when not set. Love it / Don't like feedback adds or removes up to 8 points, and today's "Don't like" answers filter pieces out entirely.
+Style, personal and body points move to harmony when not set. Each clash (running shoes with a saree, a blazer with joggers…) costs 8 more points. Love it / Don't like feedback and what you actually wore add or remove up to 8 points (a top and bottom worn together in the last week lose 4), and today's "Don't like" answers filter pieces out entirely. Pieces in the wash, lent, at the tailor, donated or on the wishlist are never suggested.
+
+The weights live in `WEIGHTS` in `src/lib/outfit.ts` (the in-app guide reads the same numbers); the styling rules are in `src/lib/styling.ts`.
 
 ## Accounts
 

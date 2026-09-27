@@ -4,9 +4,31 @@ import { ChoiceChips, MultiChips } from '../components/Chips'
 import { CitySearch } from '../components/CitySearch'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
-import { METAL_LABELS, type Metal } from '../lib/catalog'
+import { ColorPick } from '../components/ColorPick'
+import { PALETTE } from '../lib/color'
+import { METAL_LABELS, PATTERN_LABELS, type Metal, type Pattern } from '../lib/catalog'
+import { optionsFrom } from '../lib/options'
+import {
+  bodyShapesFor,
+  EYE_COLORS,
+  FITS,
+  HAIR_COLORS,
+  seasonFor,
+  SEASONS,
+  SKIN_TONES,
+  undertoneFrom,
+  type EyeColor,
+  type Fit,
+  type HairColor,
+  type MetalAnswer,
+  type SkinTone,
+  type SunAnswer,
+  type Undertone,
+  type VeinAnswer,
+} from '../lib/personal'
 import type { DoshaResult } from '../lib/dosha'
 import {
+  CURRENCIES,
   ROUTINES,
   saveProfile,
   THEMES,
@@ -15,26 +37,33 @@ import {
   type Profile,
   type RoutineId,
   type ThemeId,
+  type Currency,
 } from '../lib/profile'
 import { STYLES, stylesFor, type StyleId } from '../lib/styles'
 import { cityLabel } from '../lib/weather'
+import { WIZARD_STEPS, type WizardStep } from '../lib/wizardSteps'
 import { DoshaQuiz, DoshaResultCard } from './DoshaQuiz'
 
-const STEPS = ['About you', 'Your days', 'Your style', 'Body comfort', 'Your look'] as const
+
+const STEPS = WIZARD_STEPS.map((s) => s.label)
+const PATTERN_OPTIONS = optionsFrom<Pattern>(PATTERN_LABELS).filter((o) => o.value !== 'solid' && o.value !== 'other')
 const AGES = Array.from({ length: 100 }, (_, i) => i + 1)
 
-type Props = { onClose: () => void; startAt?: number; defaultName?: string }
+type Props = { onClose: () => void; startAt?: WizardStep; defaultName?: string }
 
-/** Five short steps that make suggestions personal. Every step can be changed later. */
-export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props) {
+/** Short steps that make suggestions personal. Every step is optional and can be changed later. */
+export function ProfileWizard({ onClose, startAt = 'about', defaultName = '' }: Props) {
   const toast = useToast()
   const { profile } = useProfile()
-  const [step, setStep] = useState(startAt)
+  const [step, setStep] = useState(() => Math.max(0, WIZARD_STEPS.findIndex((s) => s.id === startAt)))
+  const id = WIZARD_STEPS[step]!.id
+  const [undertoneHelp, setUndertoneHelp] = useState<{ veins?: VeinAnswer; metal?: MetalAnswer; sun?: SunAnswer } | null>(null)
   const [draft, setDraft] = useState<Profile>(() => ({ ...profile, name: profile.name || defaultName }))
   const [quizOpen, setQuizOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [allStyles, setAllStyles] = useState(false)
-  const ids = { name: useId(), age: useId(), gender: useId(), height: useId(), weight: useId(), metal: useId() }
+  const ids = { name: useId(), age: useId(), gender: useId(), height: useId(), weight: useId(), metal: useId(), top: useId(), bottom: useId(), shoe: useId(), budget: useId() }
+  const season = seasonFor(draft.skinTone, draft.undertone, draft.hair, draft.eyes)
   const set = (patch: Partial<Profile>) => setDraft((d) => ({ ...d, ...patch }))
   const last = step === STEPS.length - 1
   // Closing without finishing undoes the theme preview.
@@ -79,6 +108,11 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
                 <ChevronLeft size={18} aria-hidden="true" /> Back
               </button>
             )}
+            {!last && (
+              <button type="button" className="btn" onClick={() => void finish()} disabled={saving}>
+                Finish later
+              </button>
+            )}
             {last ? (
               <button type="button" className="btn primary" onClick={() => void finish()} disabled={saving}>
                 <Check size={18} aria-hidden="true" /> {saving ? 'Saving…' : 'Finish'}
@@ -101,7 +135,7 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
           ))}
         </ol>
 
-        {step === 0 && (
+        {id === 'about' && (
           <div className="form">
             <div className="field">
               <label className="field-label" htmlFor={ids.name}>
@@ -177,7 +211,167 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
           </div>
         )}
 
-        {step === 1 && (
+        {id === 'coloring' && (
+          <div className="form">
+            <SwatchChoice label="Skin tone" options={SKIN_TONES} value={draft.skinTone} onChange={(skinTone) => set({ skinTone: skinTone as SkinTone | null })} />
+            <ChoiceChips<Undertone>
+              label="Undertone"
+              hint="the hue under your skin"
+              options={[
+                { value: 'warm', label: 'Warm (golden, peachy)' },
+                { value: 'cool', label: 'Cool (pink, rosy)' },
+                { value: 'neutral', label: 'Neutral' },
+              ]}
+              value={draft.undertone}
+              onChange={(undertone) => set({ undertone })}
+              clearable
+            />
+            {!undertoneHelp ? (
+              <button type="button" className="link small" onClick={() => setUndertoneHelp({})}>
+                Not sure? Answer 3 quick questions
+              </button>
+            ) : (
+              <div className="card stack-sm">
+                <ChoiceChips<VeinAnswer>
+                  label="The veins on your wrist look…"
+                  options={[
+                    { value: 'green', label: 'Greenish' },
+                    { value: 'blue', label: 'Blue or purple' },
+                    { value: 'both', label: 'Hard to say' },
+                  ]}
+                  value={undertoneHelp.veins ?? null}
+                  onChange={(veins) => veins && setUndertoneHelp({ ...undertoneHelp, veins })}
+                />
+                <ChoiceChips<MetalAnswer>
+                  label="Which jewellery makes your skin glow?"
+                  options={[
+                    { value: 'gold', label: 'Gold' },
+                    { value: 'silver', label: 'Silver' },
+                    { value: 'both', label: 'Both' },
+                  ]}
+                  value={undertoneHelp.metal ?? null}
+                  onChange={(metal) => metal && setUndertoneHelp({ ...undertoneHelp, metal })}
+                />
+                <ChoiceChips<SunAnswer>
+                  label="In the sun, you…"
+                  options={[
+                    { value: 'tan', label: 'Tan easily' },
+                    { value: 'burn', label: 'Burn first' },
+                    { value: 'both', label: 'A bit of both' },
+                  ]}
+                  value={undertoneHelp.sun ?? null}
+                  onChange={(sun) => sun && setUndertoneHelp({ ...undertoneHelp, sun })}
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!undertoneHelp.veins || !undertoneHelp.metal || !undertoneHelp.sun}
+                  onClick={() => {
+                    set({ undertone: undertoneFrom(undertoneHelp.veins!, undertoneHelp.metal!, undertoneHelp.sun!) })
+                    setUndertoneHelp(null)
+                  }}
+                >
+                  Work out my undertone
+                </button>
+              </div>
+            )}
+            <SwatchChoice label="Hair color" options={HAIR_COLORS} value={draft.hair} onChange={(hair) => set({ hair: hair as HairColor | null })} />
+            <SwatchChoice label="Eye color" options={EYE_COLORS} value={draft.eyes} onChange={(eyes) => set({ eyes: eyes as EyeColor | null })} />
+            {season ? (
+              <div className="card stack-sm season-card">
+                <p className="muted small">Your color season</p>
+                <h3>{SEASONS[season].label}</h3>
+                <p className="small">{SEASONS[season].summary}</p>
+                <div className="season-swatches" aria-label="Colors that flatter you">
+                  {SEASONS[season].best.map((n) => (
+                    <i key={n} title={n} className="swatch lg" style={{ background: paletteHex(n) }} />
+                  ))}
+                </div>
+                <p className="muted small">Metal that suits you: {SEASONS[season].metal}.</p>
+              </div>
+            ) : (
+              <p className="muted small">Choose your skin tone and undertone to see your color season and the colors that flatter you most.</p>
+            )}
+          </div>
+        )}
+
+        {id === 'shape' && (
+          <div className="form">
+            <div className="field" role="radiogroup" aria-label="Body shape">
+              <div className="field-label">
+                Body shape <span className="field-hint">· optional, for styling tips</span>
+              </div>
+              <div className="shape-list">
+                {bodyShapesFor(draft.gender.kind).map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={draft.bodyShape === b.id}
+                    className={draft.bodyShape === b.id ? 'shape-card on' : 'shape-card'}
+                    onClick={() => set({ bodyShape: draft.bodyShape === b.id ? null : b.id })}
+                  >
+                    <b>{b.label}</b>
+                    <span className="muted small">{b.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <ChoiceChips<Fit> label="How do you like clothes to fit?" options={FITS.map((f) => ({ value: f.id, label: f.label }))} value={draft.fit} onChange={(fit) => set({ fit })} clearable />
+          </div>
+        )}
+
+        {id === 'colors' && (
+          <div className="form">
+            <ColorPick label="Colors you love" hint="Drape leans towards these" values={draft.favoriteColors} disabled={draft.avoidColors} onChange={(favoriteColors) => set({ favoriteColors })} />
+            <ColorPick label="Colors you never wear" hint="Drape avoids these" values={draft.avoidColors} disabled={draft.favoriteColors} onChange={(avoidColors) => set({ avoidColors })} />
+            <MultiChips<Pattern> label="Patterns you love" options={PATTERN_OPTIONS} values={draft.lovePatterns} onChange={(lovePatterns) => set({ lovePatterns, avoidPatterns: draft.avoidPatterns.filter((p) => !lovePatterns.includes(p)) })} />
+            <MultiChips<Pattern> label="Patterns you avoid" options={PATTERN_OPTIONS} values={draft.avoidPatterns} onChange={(avoidPatterns) => set({ avoidPatterns, lovePatterns: draft.lovePatterns.filter((p) => !avoidPatterns.includes(p)) })} />
+          </div>
+        )}
+
+        {id === 'sizes' && (
+          <div className="form">
+            <div className="two-col">
+              <div className="field">
+                <label className="field-label" htmlFor={ids.top}>
+                  Top size
+                </label>
+                <input id={ids.top} className="text-input" placeholder="e.g. M, 40" value={draft.sizes.top} maxLength={12} onChange={(e) => set({ sizes: { ...draft.sizes, top: e.target.value } })} />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor={ids.bottom}>
+                  Bottom size
+                </label>
+                <input id={ids.bottom} className="text-input" placeholder="e.g. 32, M" value={draft.sizes.bottom} maxLength={12} onChange={(e) => set({ sizes: { ...draft.sizes, bottom: e.target.value } })} />
+              </div>
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor={ids.shoe}>
+                Shoe size
+              </label>
+              <input id={ids.shoe} className="text-input" placeholder="e.g. UK 8" value={draft.sizes.shoe} maxLength={12} onChange={(e) => set({ sizes: { ...draft.sizes, shoe: e.target.value } })} />
+            </div>
+            <ChoiceChips<Currency> label="Currency" options={CURRENCIES.map((c) => ({ value: c, label: c }))} value={draft.currency} onChange={(currency) => currency && set({ currency })} />
+            <div className="field">
+              <label className="field-label" htmlFor={ids.budget}>
+                Usual spend on one piece <span className="field-hint">· optional, for the shopping advisor</span>
+              </label>
+              <input
+                id={ids.budget}
+                className="text-input"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                defaultValue={draft.budget ?? ''}
+                onChange={(e) => set({ budget: numberOrNull(e.target.value, 0, 10_000_000) })}
+              />
+            </div>
+            <p className="muted small">Sizes are a handy note for shopping; they don't change suggestions.</p>
+          </div>
+        )}
+
+        {id === 'days' && (
           <div className="form">
             {draft.city ? (
               <div className="kv">
@@ -199,7 +393,7 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
           </div>
         )}
 
-        {step === 2 && (
+        {id === 'style' && (
           <div className="form">
             <MultiChips<StyleId>
               label="Styles you love"
@@ -238,7 +432,7 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
           </div>
         )}
 
-        {step === 3 &&
+        {id === 'body' &&
           (quizOpen ? (
             <DoshaQuiz
               onDone={(dosha: DoshaResult) => {
@@ -268,7 +462,7 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
             </div>
           ))}
 
-        {step === 4 && (
+        {id === 'look' && (
           <div className="form">
             <div className="field" role="radiogroup" aria-label="App colors">
               <div className="field-label">App colors</div>
@@ -298,5 +492,26 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
         )}
       </div>
     </Sheet>
+  )
+}
+
+const PALETTE_BY_NAME = new Map(PALETTE.map((p) => [p.name, p.hex]))
+const paletteHex = (name: string) => PALETTE_BY_NAME.get(name) ?? '#999999'
+
+function SwatchChoice({ label, options, value, onChange }: { label: string; options: readonly { id: string; label: string; hex: string }[]; value: string | null; onChange: (v: string | null) => void }) {
+  return (
+    <div className="field" role="radiogroup" aria-label={label}>
+      <div className="field-label">
+        {label} <span className="field-hint">· optional</span>
+      </div>
+      <div className="swatch-choice">
+        {options.map((o) => (
+          <button key={o.id} type="button" role="radio" aria-checked={value === o.id} className={value === o.id ? 'swatch-opt on' : 'swatch-opt'} onClick={() => onChange(value === o.id ? null : o.id)}>
+            <i style={{ background: o.hex }} aria-hidden="true" />
+            <span>{o.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }

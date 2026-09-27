@@ -5,10 +5,10 @@
 import { colorName } from './color'
 import type { Affinity } from './feedback'
 import { parseIntent } from './intent'
-import { displayName, dominantHex, type Garment } from './model'
+import { displayName, dominantHex, inCloset, type Garment } from './model'
 import { explain, OCCASIONS, pieceLabel, suggestOutfits, type Outfit, type OutfitContext } from './outfit'
 import { colorsInText } from './parser'
-import type { Profile } from './profile'
+import { personalPrefs, preferredMetal, type Profile } from './profile'
 import { slotOf } from './slots'
 import { matchesFor, spectrumStats } from './spectrum'
 import { parseStyles, styleDef, type StyleId } from './styles'
@@ -52,7 +52,8 @@ function baseCtx(d: AssistantData, extra: Partial<OutfitContext>): OutfitContext
     now: d.now,
     dosha: d.profile.dosha?.primary ?? null,
     styles: d.profile.styles,
-    metal: d.profile.metal.kind,
+    metal: preferredMetal(d.profile),
+    personal: personalPrefs(d.profile),
     affinity: d.affinity,
     ...extra,
   }
@@ -158,7 +159,7 @@ export function respond(text: string, d: AssistantData, memory: Memory): { reply
   if (/\b(haven'?t\s+(i\s+)?(worn|wore)|didn'?t\s+wear|not\s+worn|never\s+worn|unworn|least\s+worn|rarely|forgot(ten)?|neglected)\b/.test(t)) {
     const DAY = 86_400_000
     const idle = d.garments
-      .filter((g) => ['top', 'bottom', 'onepiece', 'layer', 'footwear'].includes(slotOf(g)))
+      .filter((g) => inCloset(g) && ['top', 'bottom', 'onepiece', 'layer', 'footwear'].includes(slotOf(g)))
       .filter((g) => !g.lastWornAt || d.now.getTime() - Date.parse(g.lastWornAt) > 21 * DAY)
       .sort((a, b) => (a.lastWornAt ?? '') < (b.lastWornAt ?? '') ? -1 : 1)
       .slice(0, 8)

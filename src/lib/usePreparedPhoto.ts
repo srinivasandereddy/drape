@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { cutOut } from './cutout'
+import { cutOut, type TypeGuess } from './cutout'
 import { PhotoError, processPhoto, type ProcessedPhoto } from './image'
 
 type Version = { data: ProcessedPhoto; url: string }
@@ -14,6 +14,8 @@ export interface PreparedPhoto {
   useCut: boolean
   processing: boolean
   error: string | null
+  /** What kind of piece the outline looks like, if the cut-out worked. */
+  guess: TypeGuess | null
   /** The version that will be saved. */
   chosen: ProcessedPhoto | null
   chosenUrl: string | null
@@ -34,6 +36,7 @@ export function usePreparedPhoto(onChosen: (photo: ProcessedPhoto) => void): Pre
   const [useCut, setUseCutState] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [guess, setGuess] = useState<TypeGuess | null>(null)
   const token = useRef(0)
   const chosenCb = useRef(onChosen)
   useEffect(() => {
@@ -66,6 +69,7 @@ export function usePreparedPhoto(onChosen: (photo: ProcessedPhoto) => void): Pre
       if (c) {
         const version = { data: { full: c.full, thumb: c.thumb, width: c.width, height: c.height }, url: URL.createObjectURL(c.full) }
         setCut(version)
+        setGuess(c.guess)
         setUseCutState(true)
         chosenCb.current(version.data)
       } else setCutFailed(true)
@@ -89,5 +93,5 @@ export function usePreparedPhoto(onChosen: (photo: ProcessedPhoto) => void): Pre
   )
 
   const active = useCut && cut ? cut : original
-  return { original, cut, cutting, cutFailed, useCut, processing, error, chosen: active?.data ?? null, chosenUrl: active?.url ?? null, prepare, setUseCut }
+  return { original, cut, cutting, cutFailed, useCut, processing, error, guess, chosen: active?.data ?? null, chosenUrl: active?.url ?? null, prepare, setUseCut }
 }

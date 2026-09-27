@@ -9,10 +9,12 @@ import { useToast } from '../components/toastContext'
 import { useCloset } from '../lib/closet'
 import { OCCASIONS, type OccasionId } from '../lib/outfit'
 import { planTrip, slotTitle } from '../lib/packing'
-import { useProfile } from '../lib/profile'
+import { personalPrefs, preferredMetal, useProfile } from '../lib/profile'
 import { parseStyles } from '../lib/styles'
 import { addDays, isoDate, parseDate, tripDates, tripRange, validateTrip, type Trip, type TripDraft } from '../lib/trip'
 import { addTrip, deleteTrip, updateTrip, useTrips } from '../lib/trips'
+import { CalendarView } from './CalendarView'
+import { EventsView } from './EventsView'
 import { bestCityMatch, cityLabel, describeCode, getTripWeather, isRainy, searchCities, type DayWeather } from '../lib/weather'
 
 const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric' })
@@ -20,29 +22,46 @@ const TRIP_OCCASIONS = OCCASIONS.filter((o) => o.id !== 'travel')
 
 // ---------- list ----------
 
-export function TripsScreen({ onPlan, onOpen }: { onPlan: () => void; onOpen: (id: string) => void }) {
-  const { loaded, trips } = useTrips()
+export type PlansView = 'calendar' | 'trips' | 'events'
+
+export function TripsScreen({ onPlan, onOpen, onOpenPiece, view, onView }: { onPlan: () => void; onOpen: (id: string) => void; onOpenPiece: (id: string) => void; view: PlansView; onView: (v: PlansView) => void }) {
+  const { loaded, trips: all } = useTrips()
+  const trips = all.filter((t) => t.kind === 'trip')
   const today = isoDate(new Date())
   const upcoming = trips.filter((t) => t.end >= today)
   const past = trips.filter((t) => t.end < today).reverse()
 
   return (
-    <section className="screen" aria-labelledby="trips-title">
+    <section className="screen" aria-labelledby="plans-title">
       <div className="screen-head">
-        <h1 id="trips-title">Trips</h1>
-        <p className="muted">An outfit for every day, and a packing list from your own closet.</p>
+        <h1 id="plans-title">Plans</h1>
+        <p className="muted">Your outfit calendar, trips and events.</p>
       </div>
-      <button type="button" className="btn primary" onClick={onPlan}>
-        <Plus size={18} aria-hidden="true" /> Plan a trip
-      </button>
-      {loaded && trips.length === 0 && (
-        <div className="empty">
-          <Luggage size={32} aria-hidden="true" />
-          <p className="muted">No trips yet. Tell Drape where and when, and it checks the weather there, plans each day and builds your packing list.</p>
-        </div>
+      <div className="seg" role="tablist" aria-label="Plans">
+        {(['calendar', 'trips', 'events'] as PlansView[]).map((v) => (
+          <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => onView(v)}>
+            {v === 'calendar' ? 'Calendar' : v === 'trips' ? 'Trips' : 'Events'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'calendar' && <CalendarView onOpenPiece={onOpenPiece} />}
+      {view === 'events' && <EventsView onOpenPiece={onOpenPiece} />}
+      {view === 'trips' && (
+        <>
+          <button type="button" className="btn primary" onClick={onPlan}>
+            <Plus size={18} aria-hidden="true" /> Plan a trip
+          </button>
+          {loaded && trips.length === 0 && (
+            <div className="empty">
+              <Luggage size={32} aria-hidden="true" />
+              <p className="muted">No trips yet. Tell Drape where and when, and it checks the weather there, plans each day and builds your packing list.</p>
+            </div>
+          )}
+          {upcoming.length > 0 && <TripList title="Coming up" trips={upcoming} onOpen={onOpen} />}
+          {past.length > 0 && <TripList title="Past trips" trips={past} onOpen={onOpen} />}
+        </>
       )}
-      {upcoming.length > 0 && <TripList title="Coming up" trips={upcoming} onOpen={onOpen} />}
-      {past.length > 0 && <TripList title="Past trips" trips={past} onOpen={onOpen} />}
     </section>
   )
 }
@@ -232,7 +251,8 @@ export function TripSheet({ id, onClose, onOpenPiece }: { id: string; onClose: (
       routine: profile.routine,
       dosha: profile.dosha?.primary ?? null,
       styles: vibeStyles.length ? vibeStyles : profile.styles,
-      metal: profile.metal.kind,
+      metal: preferredMetal(profile),
+      personal: personalPrefs(profile),
     })
   }, [trip, wx, garments, profile])
 

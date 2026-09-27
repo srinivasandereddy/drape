@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Sheet } from '../components/Sheet'
 import { ThumbRow } from '../components/ThumbRow'
 import { respond, SUGGESTIONS, type Memory, type Reply } from '../lib/assistant'
-import { listFeedback, useCloset } from '../lib/closet'
+import { listFeedback, listOutfits, useCloset } from '../lib/closet'
 import { learnAffinity, type Affinity } from '../lib/feedback'
 import { useProfile } from '../lib/profile'
 import { useWeather } from '../lib/useWeather'
@@ -27,8 +27,8 @@ export function AssistantSheet({ onClose, onOpenPiece, onPlanTrip }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    void listFeedback().then((r) => {
-      if (!cancelled) setAffinity(learnAffinity(r, new Map(garments.map((g) => [g.id, g]))))
+    void Promise.all([listFeedback(), listOutfits()]).then(([r, worn]) => {
+      if (!cancelled) setAffinity(learnAffinity(r, new Map(garments.map((g) => [g.id, g])), worn))
     })
     return () => {
       cancelled = true
