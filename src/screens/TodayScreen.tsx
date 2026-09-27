@@ -29,7 +29,10 @@ import { parseStyles, styleDef, type StyleId } from '../lib/styles'
 import { FEELING_LABELS, THERMAL_LABELS, type Feeling } from '../lib/thermal'
 import { useWeather } from '../lib/useWeather'
 import { bestCityMatch, cityLabel, describeCode, isRainy, searchCities, type City, type Weather } from '../lib/weather'
+import { Mannequin } from '../components/Mannequin'
+import { prefs } from '../lib/platform'
 import { DislikeSheet } from './DislikeSheet'
+import { HowItWorksSheet } from './HowItWorksSheet'
 import { ScoreSheet } from './ScoreSheet'
 import { SwapSheet } from './SwapSheet'
 
@@ -180,6 +183,12 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
   const [swapFor, setSwapFor] = useState<Garment | null>(null)
   const [disliking, setDisliking] = useState(false)
   const [scoreOpen, setScoreOpen] = useState(false)
+  const [howOpen, setHowOpen] = useState(false)
+  const [view, setViewState] = useState<'pieces' | 'mannequin'>(() => (prefs.get('outfitView') === 'mannequin' ? 'mannequin' : 'pieces'))
+  const setView = (v: 'pieces' | 'mannequin') => {
+    setViewState(v)
+    prefs.set('outfitView', v)
+  }
   const [busy, setBusy] = useState(false)
 
   const resetIdeas = () => {
@@ -393,6 +402,28 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
             )}
           </header>
 
+          <div className="seg" role="tablist" aria-label="Outfit view">
+            <button type="button" role="tab" aria-selected={view === 'pieces'} className={view === 'pieces' ? 'on' : ''} onClick={() => setView('pieces')}>
+              Pieces
+            </button>
+            <button type="button" role="tab" aria-selected={view === 'mannequin'} className={view === 'mannequin' ? 'on' : ''} onClick={() => setView('mannequin')}>
+              On mannequin
+            </button>
+          </div>
+
+          {view === 'mannequin' && (
+            <div className="mannequin-wrap">
+              <Mannequin pieces={outfit.pieces} profile={profile} />
+              <p className="muted small">
+                {profile.heightCm && profile.weightKg
+                  ? `Shaped from ${profile.heightCm} cm and ${profile.weightKg} kg. `
+                  : 'Average proportions. Add your height and weight in your profile for a closer figure. '}
+                A styling preview in your pieces' colors, not a fit guide.
+              </p>
+            </div>
+          )}
+
+          {view === 'pieces' && (
           <ul className="outfit-main">
             {outfit.pieces
               .filter((p) => MAIN.has(slotOf(p)))
@@ -402,6 +433,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
                 </li>
               ))}
           </ul>
+          )}
           {outfit.pieces.some((p) => !MAIN.has(slotOf(p))) && (
             <ul className="outfit-extras">
               {outfit.pieces
@@ -423,6 +455,9 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
                 <li key={line}>{line}</li>
               ))}
             </ul>
+            <button type="button" className="link small" onClick={() => setHowOpen(true)}>
+              How does Drape choose?
+            </button>
           </div>
 
           {showingWorn ? (
@@ -509,6 +544,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
       )}
 
       {scoreOpen && outfit && <ScoreSheet outfit={outfit} onClose={() => setScoreOpen(false)} />}
+      {howOpen && <HowItWorksSheet onClose={() => setHowOpen(false)} />}
 
       {disliking && outfit && (
         <DislikeSheet onClose={() => setDisliking(false)} onPick={(r, n) => void dislike(r, n)} hasHeels={outfit.pieces.some((p) => p.subtype === 'Heels')} />

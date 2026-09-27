@@ -36,6 +36,7 @@ Then open http://localhost:5173. Google sign-in needs `VITE_GOOGLE_CLIENT_ID` in
 5. Personal (v0.4): Google accounts with a private closet per person, profile wizard, 10-question dosha quiz, daily feeling and thermal index, free-text occasion and vibe, style tropes, modesty, metal, Love it / Don't like with learning, typed wardrobe lists, sample wardrobe, color wheel modes — done
 6. Sync and backup: each person's closet, photos, profile, trips and history in step across their phones through their own Drive (v0.5) — done
 7. Trips with per-day weather, outfits and packing checklist; Ask Drape offline assistant; styles by gender plus activities; score breakdown (v0.6) — done
+8. Background removal on the phone, add from a shop link (and Android share), mannequin preview, in-app guide to suggestions (v0.8) — done
 
 ## How outfits are scored
 

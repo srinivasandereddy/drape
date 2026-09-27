@@ -54,6 +54,12 @@ export interface Garment {
   wornCount: number
   lastWornAt: string | null
   photo: { width: number; height: number } | null
+  /** Goes up by one each time the photo is replaced (e.g. background removed), so sync sends the new one. */
+  photoRev: number
+  /** Shop page it was bought from, if added from a link. */
+  link: string | null
+  /** True when the photo is a cut-out with the background removed. */
+  bgRemoved: boolean
   createdAt: string
   updatedAt: string
   /** Set instead of removing the record, so other phones learn about the delete. */
@@ -166,6 +172,9 @@ export function createGarment(
     wornCount: 0,
     lastWornAt: null,
     photo,
+    photoRev: 1,
+    link: null,
+    bgRemoved: false,
     createdAt: at,
     updatedAt: at,
     deletedAt: null,
@@ -219,6 +228,17 @@ const inSet = <T extends string>(v: unknown, labels: Record<T, string>): T | nul
   typeof v === 'string' && Object.hasOwn(labels, v) ? (v as T) : null
 const intIn = <T extends number>(v: unknown, min: number, max: number): T | null =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? (v as T) : null
+
+/** Only plain https links, kept short. */
+export function cleanLink(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length > 600) return null
+  try {
+    const u = new URL(v)
+    return u.protocol === 'https:' ? u.toString() : null
+  } catch {
+    return null
+  }
+}
 
 function cleanStyles(v: unknown): StyleId[] {
   if (!Array.isArray(v)) return []
@@ -289,6 +309,9 @@ export function normalizeGarment(raw: unknown): Garment | null {
     wornCount: intIn<number>(raw.wornCount, 0, 1_000_000) ?? 0,
     lastWornAt: isoOrNull(raw.lastWornAt),
     photo,
+    photoRev: intIn<number>(raw.photoRev, 1, 1_000_000) ?? 1,
+    link: cleanLink(raw.link),
+    bgRemoved: raw.bgRemoved === true,
     createdAt,
     updatedAt: isoOrNull(raw.updatedAt) ?? createdAt,
     deletedAt: isoOrNull(raw.deletedAt),

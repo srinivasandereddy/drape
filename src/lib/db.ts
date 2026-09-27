@@ -19,6 +19,8 @@ export interface StoredPhoto {
   id: string
   full: Blob
   thumb: Blob
+  /** Matches the garment's photoRev; missing means 1. */
+  rev?: number
 }
 
 /** Small named records such as the profile. */

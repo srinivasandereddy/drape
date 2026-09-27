@@ -89,6 +89,7 @@ const TYPES: TypeRule[] = [
 // Color words → hex. Multi-word names are checked first.
 const COLOR_WORDS: [string, string][] = [
   ...PALETTE.map((p) => [p.name.toLowerCase(), p.hex] as [string, string]),
+  ['navy blue', '#1F2A44'],
   ['off white', '#EFE6D0'],
   ['off-white', '#EFE6D0'],
   ['ivory', '#EFE6D0'],
@@ -196,7 +197,7 @@ export function colorsInText(text: string): string[] {
   for (const [w, hex] of COLOR_SORTED) {
     if (has(rest, w)) {
       if (!out.includes(hex)) out.push(hex)
-      rest = rest.replace(` ${w} `, ' ')
+      rest = rest.replaceAll(` ${w} `, ' ')
     }
   }
   return out
@@ -212,7 +213,9 @@ export interface ParsedItem {
 /** Parses one item. `hint` is the list section it was typed in, used when the type isn't recognised. */
 export function parseItem(text: string, hint?: CategoryId): ParsedItem {
   const clean = text.trim().replace(/\s+/g, ' ')
-  const t = ` ${clean.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ')} `
+  const base = clean.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ')
+  // Keep hyphenated words ("t-shirt") and also their parts ("linen-blend" → "linen blend").
+  const t = ` ${base} | ${base.replace(/-/g, ' ')} `
   let rest = t
 
   // The longest matching phrase wins, so "dress shoes" beats "dress" and "crossbody bag" beats "bag".
@@ -229,14 +232,14 @@ export function parseItem(text: string, hint?: CategoryId): ParsedItem {
   const category = typeRule?.category ?? hint ?? null
 
   const metal = category === 'jewellery' ? (METALS.find(([w]) => has(rest, w))?.[1] ?? null) : null
-  if (metal) for (const [w] of METALS) rest = rest.replace(` ${w} `, ' ')
+  if (metal) for (const [w] of METALS) rest = rest.replaceAll(` ${w} `, ' ')
 
   const colors = []
   for (const [w, hex] of COLOR_SORTED) {
     if (colors.length >= 2) break
     if (has(rest, w)) {
       colors.push({ hex, share: 0 })
-      rest = rest.replace(` ${w} `, ' ')
+      rest = rest.replaceAll(` ${w} `, ' ')
     }
   }
   // "Blue jeans" style items with no color word get a typical color.

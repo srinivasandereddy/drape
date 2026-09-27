@@ -154,6 +154,31 @@ describe('sync between two phones through Drive', () => {
     expect(drive.names()).toContain('test-1.json') // other files are left alone
   })
 
+  it('sends a replaced photo (e.g. background removed) to the other phone', async () => {
+    const g = shirt('Blue shirt', 1)
+    await onPhone('A', async () => {
+      await put(g)
+      await syncOnce(drive)
+    })
+    await onPhone('B', async () => {
+      await syncOnce(drive)
+    })
+    await onPhone('A', async () => {
+      const db = await getDb()
+      const next = { ...g, photoRev: 2, updatedAt: at(20).toISOString() }
+      await db.put('garments', next)
+      await db.put('photos', { id: g.id, full: new Blob(['cutout-full']), thumb: new Blob(['cutout-thumb']), rev: 2 })
+      await syncOnce(drive)
+    })
+    expect(drive.names().filter((x) => x.startsWith('p_'))).toEqual([`p_${g.id}_r2_full`, `p_${g.id}_r2_thumb`])
+    await onPhone('B', async () => {
+      await syncOnce(drive)
+      const p = await (await getDb()).get('photos', g.id)
+      expect(await p!.thumb.text()).toBe('cutout-thumb')
+      expect(p!.rev).toBe(2)
+    })
+  })
+
   it('cleans up duplicate files from two phones uploading at once', async () => {
     const g = shirt('Blue shirt', 1)
     await drive.put(`g_${g.id}.json`, g, g.updatedAt)

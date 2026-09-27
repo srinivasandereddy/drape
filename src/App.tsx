@@ -13,6 +13,7 @@ import { startSync, useSync } from './lib/syncStore'
 import { AddSheet } from './screens/AddSheet'
 import { ClosetScreen } from './screens/ClosetScreen'
 import { GarmentSheet } from './screens/GarmentSheet'
+import { LinkAddSheet, type SharedLink } from './screens/LinkAddSheet'
 import { ProfileWizard } from './screens/ProfileWizard'
 import { QuickAddSheet } from './screens/QuickAddSheet'
 import { SettingsSheet } from './screens/SettingsSheet'
@@ -45,6 +46,16 @@ function SignedIn({ account }: { account: Account }) {
   const [wizard, setWizard] = useState<{ step: number } | null>(null)
   const [autoWizardDone, setAutoWizardDone] = useState(false)
   const [asking, setAsking] = useState(false)
+  // A product link shared to Drape (Android share sheet) arrives as ?url=…&text=…&title=…
+  const [linkAdd, setLinkAdd] = useState<SharedLink | null>(() => {
+    const q = new URLSearchParams(location.search)
+    const url = q.get('url') ?? undefined
+    const text = q.get('text') ?? undefined
+    return url || text ? { url, text, title: q.get('title') ?? undefined } : null
+  })
+  useEffect(() => {
+    if (location.search) history.replaceState(null, '', location.pathname)
+  }, [])
   const [tripEditor, setTripEditor] = useState<TripPrefill | null>(null)
   const [openTripId, setOpenTripId] = useState<string | null>(null)
 
@@ -139,7 +150,17 @@ function SignedIn({ account }: { account: Account }) {
         />
       )}
       {openTripId && <TripSheet key={openTripId} id={openTripId} onClose={closeTrip} onOpenPiece={setOpenId} />}
-      {adding && <AddSheet onClose={closeAdd} onTypeList={openQuick} />}
+      {adding && (
+        <AddSheet
+          onClose={closeAdd}
+          onTypeList={openQuick}
+          onLink={() => {
+            setAdding(false)
+            setLinkAdd({})
+          }}
+        />
+      )}
+      {linkAdd && <LinkAddSheet shared={linkAdd} onClose={() => setLinkAdd(null)} />}
       {quickAdding && <QuickAddSheet onClose={closeQuick} />}
       {settingsOpen && <SettingsSheet onClose={closeSettings} onEditProfile={editProfile} />}
       {wizard && <ProfileWizard startAt={wizard.step} defaultName={account.name.split(' ')[0] ?? ''} onClose={closeWizard} />}

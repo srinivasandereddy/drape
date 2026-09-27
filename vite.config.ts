@@ -31,6 +31,12 @@ export default defineConfig({
         background_color: '#F7F7F4',
         display: 'standalone',
         orientation: 'portrait',
+        // Android: Drape appears in the share sheet, so a shop's product link can be sent straight to it.
+        share_target: {
+          action: './',
+          method: 'GET',
+          params: { title: 'title', text: 'text', url: 'url' },
+        },
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },

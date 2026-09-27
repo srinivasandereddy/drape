@@ -35,7 +35,11 @@ export function checkFile(file: Pick<File, 'type' | 'size' | 'name'>): void {
   if (file.size > MAX_INPUT_BYTES) throw new PhotoError('That photo is over 40 MB. Choose a smaller one.')
 }
 
-function loadImage(file: Blob): Promise<HTMLImageElement> {
+/**
+ * Loads an image from a blob. Uses `onload` rather than `img.decode()`, which
+ * stalls while the app is in the background.
+ */
+export function loadImage(file: Blob): Promise<HTMLImageElement> {
   const url = URL.createObjectURL(file)
   const img = new Image()
   // Browsers rotate the image according to its camera orientation (EXIF) when drawing it.

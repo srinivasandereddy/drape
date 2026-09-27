@@ -1,3 +1,5 @@
+import { loadImage } from './image'
+
 // Color science for Drape: conversions, friendly names, neutrals, and reading
 // the main colors of a garment photo. Everything here is plain math with no
 // browser APIs, except `extractColorsFromBlob` at the bottom.
@@ -329,11 +331,8 @@ function mergeSimilar(clusters: { lab: Lab; w: number }[]): { lab: Lab; w: numbe
 const SAMPLE_PX = 96
 
 export async function extractColorsFromBlob(blob: Blob): Promise<ExtractedColor[]> {
-  const url = URL.createObjectURL(blob)
-  try {
-    const img = new Image()
-    img.src = url
-    await img.decode()
+  {
+    const img = await loadImage(blob)
     const scale = Math.min(1, SAMPLE_PX / Math.max(img.naturalWidth, img.naturalHeight))
     const w = Math.max(1, Math.round(img.naturalWidth * scale))
     const h = Math.max(1, Math.round(img.naturalHeight * scale))
@@ -349,7 +348,5 @@ export async function extractColorsFromBlob(blob: Blob): Promise<ExtractedColor[
       canvas.width = 0
       canvas.height = 0
     }
-  } finally {
-    URL.revokeObjectURL(url)
   }
 }

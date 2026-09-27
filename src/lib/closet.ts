@@ -95,10 +95,10 @@ export function resetClosetStore() {
 }
 
 /** Adds several pieces without photos (typed lists, sample wardrobe) in one go. */
-export function addGarments(drafts: GarmentDraft[], source: GarmentSource): Promise<Garment[]> {
+export function addGarments(drafts: GarmentDraft[], source: GarmentSource, extra: Partial<Pick<Garment, 'link'>> = {}): Promise<Garment[]> {
   return write(async () => {
     const now = Date.now()
-    const garments = drafts.map((d, i) => createGarment(d, null, new Date(now + i), undefined, source))
+    const garments = drafts.map((d, i) => ({ ...createGarment(d, null, new Date(now + i), undefined, source), ...extra }))
     const db = await getDb()
     const tx = db.transaction('garments', 'readwrite')
     await Promise.all([...garments.map((g) => tx.store.put(g)), tx.done])
@@ -120,20 +120,23 @@ export function removeSamples(): Promise<number> {
 }
 
 /** Adds or replaces the photo of an existing piece, and re-reads its colors unless they were fixed by hand. */
-export function setGarmentPhoto(id: string, photo: ProcessedPhoto, colors: GarmentColor[]): Promise<Garment> {
+export function setGarmentPhoto(id: string, photo: ProcessedPhoto, colors: GarmentColor[], bgRemoved = false): Promise<Garment> {
   return write(async () => {
     const db = await getDb()
     const tx = db.transaction(['garments', 'photos'], 'readwrite')
     const current = normalizeGarment(await tx.objectStore('garments').get(id))
     if (!current || current.deletedAt) throw new Error('That piece is no longer in your closet.')
+    const rev = current.photo ? current.photoRev + 1 : current.photoRev
     const next: Garment = {
       ...current,
       photo: { width: photo.width, height: photo.height },
+      photoRev: rev,
+      bgRemoved,
       source: current.source === 'sample' ? 'sample' : 'photo',
       colors: current.colorsEdited || colors.length === 0 ? current.colors : colors,
       updatedAt: new Date().toISOString(),
     }
-    await Promise.all([tx.objectStore('photos').put({ id, full: photo.full, thumb: photo.thumb }), tx.objectStore('garments').put(next), tx.done])
+    await Promise.all([tx.objectStore('photos').put({ id, full: photo.full, thumb: photo.thumb, rev }), tx.objectStore('garments').put(next), tx.done])
     return next
   })
 }
@@ -158,9 +161,9 @@ export async function listFeedback(): Promise<FeedbackRecord[]> {
   }
 }
 
-export function addGarment(draft: GarmentDraft, photo: ProcessedPhoto): Promise<Garment> {
+export function addGarment(draft: GarmentDraft, photo: ProcessedPhoto, extra: Partial<Pick<Garment, 'link' | 'bgRemoved'>> = {}): Promise<Garment> {
   return write(async () => {
-    const garment = createGarment(draft, { width: photo.width, height: photo.height })
+    const garment = { ...createGarment(draft, { width: photo.width, height: photo.height }), ...extra }
     const db = await getDb()
     // One transaction: the garment and its photo are saved together or not at all.
     const tx = db.transaction(['garments', 'photos'], 'readwrite')

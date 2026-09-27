@@ -1,4 +1,4 @@
-import { Camera, CalendarCheck, Pencil, Trash2 } from 'lucide-react'
+import { Camera, CalendarCheck, ExternalLink, Pencil, Scissors, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { ColorSwatches } from '../components/ColorSwatches'
 import { GarmentForm } from '../components/GarmentForm'
@@ -6,7 +6,8 @@ import { PieceImage } from '../components/PieceImage'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
 import { FABRIC_LABELS, FORMALITY_LABELS, METAL_LABELS, PATTERN_LABELS, SEASON_LABELS, WARMTH_LABELS, categoryDef } from '../lib/catalog'
-import { deleteGarment, editGarment, setGarmentPhoto, useCloset, wearGarment } from '../lib/closet'
+import { deleteGarment, editGarment, getPhoto, setGarmentPhoto, useCloset, wearGarment } from '../lib/closet'
+import { cutOut } from '../lib/cutout'
 import { extractColorsFromBlob } from '../lib/color'
 import { PhotoError, processPhoto } from '../lib/image'
 import { styleDef } from '../lib/styles'
@@ -29,6 +30,7 @@ function details(g: Garment): [string, ReactNode][] {
   if (g.fabric) rows.push(['Fabric', FABRIC_LABELS[g.fabric]])
   if (g.styleTags.length) rows.push(['Style', g.styleTags.map((s) => styleDef(s).label).join(', ')])
   if (g.source === 'sample') rows.push(['Added as', 'Sample piece'])
+  if (g.link) rows.push(['Bought from', new URL(g.link).hostname.replace(/^www\d?\./, '')])
   rows.push(['Seasons', g.seasons.length ? g.seasons.map((s) => SEASON_LABELS[s]).join(', ') : 'All year'])
   rows.push(['Worn', g.wornCount === 0 ? 'Not yet' : `${g.wornCount} time${g.wornCount === 1 ? '' : 's'}, last ${dateFmt.format(new Date(g.lastWornAt!))}`])
   rows.push(['Added', dateFmt.format(new Date(g.createdAt))])
@@ -97,6 +99,19 @@ export function GarmentSheet({ id, onClose, onOpen }: { id: string; onClose: () 
 
   const woreToday = isToday(garment.lastWornAt)
 
+  async function removeBackground() {
+    if (!garment) return
+    await run(async () => {
+      const stored = await getPhoto(garment.id)
+      if (!stored) throw new Error('This photo is not on this phone yet. Try again after syncing.')
+      const cut = await cutOut(stored.full)
+      if (!cut) throw new Error("Couldn't separate the piece from its background. A photo on a plain bed, floor or wall works best.")
+      const photo = { full: cut.full, thumb: cut.thumb, width: cut.width, height: cut.height }
+      const colors = await extractColorsFromBlob(cut.thumb).catch(() => [])
+      await setGarmentPhoto(garment.id, photo, colors, true)
+    }, 'Background removed')
+  }
+
   async function addPhoto(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -124,6 +139,16 @@ export function GarmentSheet({ id, onClose, onOpen }: { id: string; onClose: () 
           <button type="button" className="btn" disabled={busy} onClick={() => photoInput.current?.click()}>
             <Camera size={18} aria-hidden="true" /> Add a photo of this piece
           </button>
+        )}
+        {garment.photo && !garment.bgRemoved && (
+          <button type="button" className="btn" disabled={busy} onClick={() => void removeBackground()}>
+            <Scissors size={18} aria-hidden="true" /> {busy ? 'Working…' : 'Remove background'}
+          </button>
+        )}
+        {garment.link && (
+          <a className="btn" href={garment.link} target="_blank" rel="noopener noreferrer">
+            <ExternalLink size={18} aria-hidden="true" /> View in the shop
+          </a>
         )}
 
         <div className="row-actions">

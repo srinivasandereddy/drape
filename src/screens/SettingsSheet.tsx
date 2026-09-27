@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Sheet } from '../components/Sheet'
+import { HowItWorksSheet } from './HowItWorksSheet'
 import { useToast } from '../components/toastContext'
 import { reconnect, removeAccountFromPhone, signOutAccount, useAccount } from '../lib/account'
 import { deleteEverything, removeSamples, useCloset } from '../lib/closet'
@@ -22,6 +23,7 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
   const [persisted, setPersisted] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'wipe' | 'remove' | null>(null)
+  const [howOpen, setHowOpen] = useState(false)
   const samples = garments.filter((g) => g.source === 'sample').length
 
   useEffect(() => {
@@ -134,6 +136,15 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
         </section>
 
         <SyncCard />
+
+        <section className="card stack-sm" aria-labelledby="s-how">
+          <h2 id="s-how">How Drape picks outfits</h2>
+          <p className="muted small">What it looks at, how each outfit is scored, and how your feedback changes it.</p>
+          <button type="button" className="btn" onClick={() => setHowOpen(true)}>
+            Read the guide
+          </button>
+        </section>
+        {howOpen && <HowItWorksSheet onClose={() => setHowOpen(false)} />}
 
         {samples > 0 && (
           <section className="card stack-sm" aria-labelledby="s-samples">

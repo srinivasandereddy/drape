@@ -599,3 +599,27 @@ button:disabled { cursor: default; }
 .sync-badge.error { color: var(--bad); }
 .sync-badge.paused { color: var(--ink); }
 .sync-dot { position: absolute; top: 10px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+
+/* ---------- v0.8: cut-outs, mannequin, guide ---------- */
+.checker {
+  background-color: var(--backdrop);
+  background-image: linear-gradient(45deg, color-mix(in srgb, var(--ink) 6%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--ink) 6%, transparent) 75%),
+    linear-gradient(45deg, color-mix(in srgb, var(--ink) 6%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--ink) 6%, transparent) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: 999px; background: var(--backdrop); }
+.seg button { min-height: 36px; border: 0; border-radius: 999px; background: none; font-weight: 500; font-size: 14px; color: var(--mute); }
+.seg button.on { background: var(--card); color: var(--ink); font-weight: 700; box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+.mannequin-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.mannequin { width: 100%; max-width: 240px; height: auto; color: var(--ink); }
+.mq-body path, .mq-body circle { fill: var(--mannequin); stroke: color-mix(in srgb, var(--ink) 18%, transparent); stroke-width: 0.8; }
+:root { --mannequin: #e6e2dc; }
+@media (prefers-color-scheme: dark) { :root { --mannequin: #3a3d42; } }
+:root[data-look='midnight'] { --mannequin: #3a3d42; }
+.how h3 { font-size: 17px; }
+.how-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.how-table th, .how-table td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+.how-table th { font-size: 12px; color: var(--mute); font-weight: 500; }
+.how-table td.mono { text-align: center; }
+a.btn { text-decoration: none; }

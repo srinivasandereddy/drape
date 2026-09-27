@@ -52,7 +52,9 @@ export function parseName(name: string): { kind: Kind; id: string } | null {
   const kind = (Object.entries(PREFIX).find(([, p]) => p === m[1])?.[0] ?? null) as Kind | null
   return kind ? { kind, id: m[2]! } : null
 }
-const photoName = (id: string, size: 'full' | 'thumb') => `p_${id}_${size}.jpg`
+// Revision 1 keeps the original names so earlier uploads still count.
+const photoName = (id: string, size: 'full' | 'thumb', rev = 1) => (rev <= 1 ? `p_${id}_${size}.jpg` : `p_${id}_r${rev}_${size}`)
+const PHOTO_FILE = /^p_([0-9A-HJKMNP-TV-Z]{26})_(?:r(\d+)_)?(full|thumb)(?:\.jpg)?$/
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
 const iso = (v: unknown) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null)
@@ -66,7 +68,7 @@ function validFeedback(v: unknown): FeedbackRecord | null {
     : null
 }
 
-async function readLocal(): Promise<{ records: Local[]; photoIds: Set<string>; garments: Map<string, Garment> }> {
+async function readLocal(): Promise<{ records: Local[]; photoRevs: Map<string, number>; garments: Map<string, Garment> }> {
   const db = await getDb()
   const records: Local[] = []
   const garments = new Map<string, Garment>()
@@ -84,8 +86,9 @@ async function readLocal(): Promise<{ records: Local[]; photoIds: Set<string>; g
   }
   const profile = await db.get('meta', 'profile')
   if (profile) records.push({ name: 'profile.json', kind: 'profile', id: 'profile', updatedAt: profile.updatedAt, data: profile.value })
-  const photoIds = new Set((await db.getAllKeys('photos')).map(String))
-  return { records, photoIds, garments }
+  const photoRevs = new Map<string, number>()
+  for (const p of await db.getAll('photos')) photoRevs.set(p.id, p.rev ?? 1)
+  return { records, photoRevs, garments }
 }
 
 /** Saves one downloaded record, after checking it. Returns false if it was unusable. */
@@ -190,39 +193,49 @@ export async function syncOnce(remote: Remote, onProgress?: (done: number, total
     onProgress?.(++done, total())
   })
 
-  // 2. Photos, once every garment is known.
+  // 2. Photos, once every garment is known. Each revision is uploaded once; older ones are removed.
   const photoJobs: Job[] = []
   const db = await getDb()
+  const remotePhotos = new Map<string, RemoteFile[]>()
+  for (const f of byName.values()) {
+    const m = PHOTO_FILE.exec(f.name)
+    if (m) remotePhotos.set(m[1]!, [...(remotePhotos.get(m[1]!) ?? []), f])
+  }
+  const removeFiles = (list: RemoteFile[]) => {
+    for (const f of list)
+      photoJobs.push(async () => {
+        await remote.remove(f.id)
+        result.removed++
+      })
+  }
   for (const g of garments.values()) {
-    const full = byName.get(photoName(g.id, 'full'))
-    const thumb = byName.get(photoName(g.id, 'thumb'))
-    const hasLocal = local.photoIds.has(g.id)
-    if (g.deletedAt) {
-      for (const f of [full, thumb]) {
-        if (f)
-          photoJobs.push(async () => {
-            await remote.remove(f.id)
-            result.removed++
-          })
-      }
+    const theirs = remotePhotos.get(g.id) ?? []
+    if (g.deletedAt || !g.photo) {
+      if (g.deletedAt) removeFiles(theirs)
       continue
     }
-    if (!g.photo) continue
-    // Photos never change once taken, so each one is uploaded or downloaded once.
-    if (hasLocal && (!full || !thumb)) {
+    const want = g.photoRev
+    const full = byName.get(photoName(g.id, 'full', want))
+    const thumb = byName.get(photoName(g.id, 'thumb', want))
+    const stale = theirs.filter((f) => f !== full && f !== thumb)
+    const localRev = local.photoRevs.get(g.id)
+    if (localRev === want && (!full || !thumb)) {
       photoJobs.push(async () => {
         const p = await db.get('photos', g.id)
         if (!p) return
-        await remote.put(photoName(g.id, 'full'), p.full, g.updatedAt, full?.id)
-        await remote.put(photoName(g.id, 'thumb'), p.thumb, g.updatedAt, thumb?.id)
+        await remote.put(photoName(g.id, 'full', want), p.full, g.updatedAt, full?.id)
+        await remote.put(photoName(g.id, 'thumb', want), p.thumb, g.updatedAt, thumb?.id)
         result.uploaded += 2
       })
-    } else if (!hasLocal && full && thumb) {
+      removeFiles(stale)
+    } else if (localRev !== want && full && thumb) {
       photoJobs.push(async () => {
         const [f, t] = await Promise.all([remote.getBlob(full.id), remote.getBlob(thumb.id)])
-        await db.put('photos', { id: g.id, full: f, thumb: t })
+        await db.put('photos', { id: g.id, full: f, thumb: t, rev: want })
         result.downloaded += 2
       })
+    } else if (localRev === want && full && thumb) {
+      removeFiles(stale)
     }
   }
   const base = jobs.length
