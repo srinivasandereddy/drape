@@ -54,7 +54,7 @@ export function harmonyOf(colors: string[], patternedCount = 0): Harmony {
     result = {
       score: 0.88,
       kind: 'neutral',
-      reason: neutralNames.length ? `${joinNames(neutralNames)} keep it calm and easy to wear.` : 'Neutral tones keep it calm.',
+      reason: neutralNames.length ? `${joinNames(neutralNames)} ${new Set(neutralNames).size === 1 ? 'keeps' : 'keep'} it calm and easy to wear.` : 'Neutral tones keep it calm.',
     }
   } else if (families.length === 1) {
     result = {

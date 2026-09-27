@@ -9,9 +9,7 @@ import {
   PATTERN_LABELS,
   SEASON_LABELS,
   categoryDef,
-  defaultCoverage,
   type CategoryId,
-  type Coverage,
   type Fabric,
   type Formality,
   type Metal,
@@ -49,8 +47,6 @@ export interface Garment {
   seasons: Season[]
   metal: Metal | null
   fabric: Fabric | null
-  /** How much of the body it covers, 1 revealing … 5 full; compared with the modesty setting. */
-  coverage: Coverage
   /** Style aesthetics chosen by the person, e.g. "old-money". Drape also guesses styles on its own. */
   styleTags: StyleId[]
   /** How the piece was added. Sample pieces can be removed in one go. */
@@ -79,8 +75,6 @@ export interface GarmentDraft {
   seasons: Season[]
   metal: Metal | null
   fabric: Fabric | null
-  /** null = work it out from the type */
-  coverage: Coverage | null
   styleTags: StyleId[]
 }
 
@@ -97,7 +91,6 @@ export function emptyDraft(): GarmentDraft {
     seasons: [],
     metal: null,
     fabric: null,
-    coverage: null,
     styleTags: [],
   }
 }
@@ -115,7 +108,6 @@ export function draftFromGarment(g: Garment): GarmentDraft {
     seasons: [...g.seasons],
     metal: g.metal,
     fabric: g.fabric,
-    coverage: g.coverage,
     styleTags: [...g.styleTags],
   }
 }
@@ -169,7 +161,6 @@ export function createGarment(
     seasons: d.seasons,
     metal: d.metal,
     fabric: d.fabric,
-    coverage: d.coverage ?? defaultCoverage(d.category, d.subtype),
     styleTags: d.styleTags,
     source,
     wornCount: 0,
@@ -197,7 +188,6 @@ export function applyDraft(g: Garment, draft: GarmentDraft, now: Date = new Date
     seasons: d.seasons,
     metal: d.metal,
     fabric: d.fabric,
-    coverage: d.coverage ?? defaultCoverage(d.category, d.subtype),
     styleTags: d.styleTags,
     updatedAt: now.toISOString(),
   }
@@ -294,7 +284,6 @@ export function normalizeGarment(raw: unknown): Garment | null {
     seasons: uniqueSeasons(raw.seasons),
     metal: inSet<Metal>(raw.metal, METAL_LABELS),
     fabric: inSet<Fabric>(raw.fabric, FABRIC_LABELS),
-    coverage: intIn<Coverage>(raw.coverage, 1, 5) ?? defaultCoverage(category, str(raw.subtype)),
     styleTags: cleanStyles(raw.styleTags),
     source: raw.source === 'text' || raw.source === 'sample' || raw.source === 'photo' ? raw.source : photo ? 'photo' : 'text',
     wornCount: intIn<number>(raw.wornCount, 0, 1_000_000) ?? 0,

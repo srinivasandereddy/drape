@@ -18,6 +18,10 @@ type TypeRule = { words: string[]; category: CategoryId; subtype: string }
 
 // Most specific phrases first; the first match wins.
 const TYPES: TypeRule[] = [
+  { words: ['sports bra', 'sport bra'], category: 'top', subtype: 'Sports bra' },
+  { words: ['sports tee', 'gym tee', 'running tee', 'dri-fit', 'dri fit', 'jersey', 'training tee', 'sports t-shirt', 'gym t-shirt'], category: 'top', subtype: 'Sports tee' },
+  { words: ['track jacket', 'zip-up', 'zip up', 'tracksuit top'], category: 'outerwear', subtype: 'Track jacket' },
+  { words: ['running shoes', 'runners', 'sports shoes', 'training shoes', 'gym shoes', 'spikes'], category: 'footwear', subtype: 'Running shoes' },
   { words: ['crop top', 'cropped top', 'crop tee'], category: 'top', subtype: 'Crop top' },
   { words: ['tank top', 'tank', 'camisole', 'cami', 'vest top', 'singlet'], category: 'top', subtype: 'Tank top' },
   { words: ['t-shirt', 'tshirt', 't shirt', 'tee', 'graphic tee'], category: 'top', subtype: 'T-shirt' },

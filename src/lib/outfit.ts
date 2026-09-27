@@ -17,7 +17,7 @@ import { DOSHA_GUIDE, type DoshaId } from './dosha'
 import { affinityPoints, NO_ADJUST, pairKey, type Affinity, type DayAdjust } from './feedback'
 import { harmonyOf, type Harmony } from './harmony'
 import { displayName, dominantHex, type Garment } from './model'
-import { MIN_COVERAGE, routineDef, type Modesty, type RoutineId } from './profile'
+import { routineDef, type RoutineId } from './profile'
 import { CLOTHING, MAIN, SLOT_ORDER, slotOf, VISIBLE, type Slot } from './slots'
 import { styleDef, styleFit, type StyleId } from './styles'
 import { thermalIndex, type Feeling, type Thermal } from './thermal'
@@ -25,10 +25,11 @@ import { isRainy, isSunny, seasonFromWeather, type Weather } from './weather'
 
 export { SLOT_ORDER, slotOf, type Slot } from './slots'
 
-export type OccasionId = 'work' | 'casual' | 'evening' | 'festive' | 'travel'
+export type OccasionId = 'work' | 'casual' | 'active' | 'evening' | 'festive' | 'travel'
 export const OCCASIONS: readonly { id: OccasionId; label: string }[] = [
   { id: 'work', label: 'Work' },
   { id: 'casual', label: 'Casual' },
+  { id: 'active', label: 'Workout / sport' },
   { id: 'evening', label: 'Evening out' },
   { id: 'festive', label: 'Festive' },
   { id: 'travel', label: 'Travel' },
@@ -46,13 +47,14 @@ export interface OutfitContext {
   styles?: StyleId[]
   /** Color names the person asked for today, e.g. from "something in pink". */
   wishColors?: string[]
-  modesty?: Modesty
   metal?: Metal | null
   affinity?: Affinity | null
   adjust?: DayAdjust
   /** From the typed occasion, e.g. +1 for "interview". */
   formalityShift?: number
   preferShoes?: string[]
+  /** Trip packing: pieces already in the suitcase get a small bonus, to keep it light. */
+  preferIds?: string[]
 }
 
 export interface Outfit {
@@ -64,9 +66,21 @@ export interface Outfit {
   parts: { harmony: number; weather: number; occasion: number; style: number | null; body: number | null; freshness: number }
   /** Past feedback liked this pairing. */
   loved: boolean
+  /** Points per part, for the "How was this scored?" panel. */
+  breakdown: ScorePart[]
+}
+
+export interface ScorePart {
+  label: string
+  /** What this part judges, in plain words. */
+  about: string
+  points: number
+  max: number
 }
 
 const OPEN_SHOES = new Set(['Sandals', 'Slippers', 'Heels', 'Kolhapuris', 'Flats'])
+const ACTIVE_SHOES = ['Running shoes', 'Sneakers']
+const ACTIVEWEAR = new Set(['Sports tee', 'Sports bra', 'Tank top', 'Joggers', 'Leggings', 'Shorts', 'Track jacket', 'Hoodie'])
 const DAY = 86_400_000
 
 export function thermalFor(ctx: OutfitContext): Thermal {
@@ -87,6 +101,9 @@ export function targetFormality(occasion: OccasionId, routine: RoutineId | null,
       break
     case 'casual':
       base = 1.75
+      break
+    case 'active':
+      base = 1
       break
     case 'evening':
       base = 3
@@ -140,6 +157,14 @@ function occasionScore(pieces: Garment[], ctx: OutfitContext): number {
   const shoes = pieces.find((p) => slotOf(p) === 'footwear')
   if (ctx.occasion === 'festive' && pieces.some((p) => p.category === 'ethnic')) score += 0.15
   if (ctx.occasion === 'travel' && shoes && ['Sneakers', 'Loafers', 'Sandals'].includes(shoes.subtype)) score += 0.1
+  if (ctx.occasion === 'active') {
+    // Sportswear matters more than looks here: running shoes and technical fabrics.
+    if (shoes) score += ACTIVE_SHOES.includes(shoes.subtype) ? 0.15 : -0.35
+    // Every piece of clothing should be workout gear; a shirt or chinos at the gym is a miss.
+    const clothes = pieces.filter((p) => CLOTHING.includes(slotOf(p)) && slotOf(p) !== 'layer')
+    const notSporty = clothes.filter((p) => !(ACTIVEWEAR.has(p.subtype) || p.fabric === 'synthetic')).length
+    score -= 0.35 * notSporty
+  }
   if (shoes && ctx.preferShoes?.length) score += ctx.preferShoes.includes(shoes.subtype) ? 0.1 : -0.1
   if (ctx.occasion === 'work' && ctx.routine === 'field' && shoes) {
     if (['Boots', 'Sneakers'].includes(shoes.subtype)) score += 0.1
@@ -204,9 +229,13 @@ export function scoreOutfit(pieces: Garment[], ctx: OutfitContext, thermal: Ther
   }
   // Dress code matters more when there is one (office, evening, festive).
   const strict = ctx.occasion === 'work' || ctx.occasion === 'evening' || ctx.occasion === 'festive'
-  const w = strict
-    ? { harmony: 30, weather: 20, occasion: 25, style: 10, body: 5, freshness: 10 }
-    : { harmony: 40, weather: 20, occasion: 15, style: 10, body: 5, freshness: 10 }
+  // Workouts care about function first: the right gear, then comfort for the weather.
+  const w =
+    ctx.occasion === 'active'
+      ? { harmony: 15, weather: 20, occasion: 35, style: 15, body: 5, freshness: 10 }
+      : strict
+        ? { harmony: 30, weather: 20, occasion: 25, style: 10, body: 5, freshness: 10 }
+        : { harmony: 40, weather: 20, occasion: 15, style: 10, body: 5, freshness: 10 }
   let harmonyWeight = w.harmony
   if (parts.style === null) harmonyWeight += w.style
   if (parts.body === null) harmonyWeight += w.body
@@ -220,6 +249,10 @@ export function scoreOutfit(pieces: Garment[], ctx: OutfitContext, thermal: Ther
 
   const { points, loved } = affinityPoints(visible, ctx.affinity ?? null)
   score += points
+  if (ctx.preferIds?.length) {
+    const reused = visible.filter((p) => ctx.preferIds!.includes(p.id) && ['bottom', 'footwear', 'layer'].includes(slotOf(p))).length
+    score += Math.min(6, reused * 2)
+  }
   // A pairing disliked earlier today is a last resort.
   const avoid = ctx.adjust?.avoidPairs ?? []
   if (avoid.length) {
@@ -227,19 +260,28 @@ export function scoreOutfit(pieces: Garment[], ctx: OutfitContext, thermal: Ther
     for (let i = 0; i < mains.length; i++) for (let j = i + 1; j < mains.length; j++) if (avoid.includes(pairKey(mains[i]!, mains[j]!))) score -= 30
   }
 
+  const r = (x: number) => Math.round(x * 10) / 10
+  const breakdown: ScorePart[] = [
+    { label: 'Color harmony', about: harmony.label, points: r(harmonyWeight * parts.harmony), max: harmonyWeight },
+    { label: 'Weather', about: `Thermal index ${thermal.index}/5`, points: r(w.weather * parts.weather), max: w.weather },
+    { label: 'Dress code', about: `Right dressiness for ${OCCASIONS.find((o) => o.id === ctx.occasion)?.label.toLowerCase() ?? ctx.occasion}`, points: r(w.occasion * parts.occasion), max: w.occasion },
+  ]
+  if (parts.style !== null) breakdown.push({ label: 'Your style', about: 'Matches your styles and colors', points: r(w.style * parts.style), max: w.style })
+  if (parts.body !== null) breakdown.push({ label: 'Body comfort', about: 'Dosha-friendly fabrics and colors', points: r(w.body * parts.body), max: w.body })
+  breakdown.push({ label: 'Freshness', about: 'Not worn in the last few days', points: r(w.freshness * parts.freshness), max: w.freshness })
+  if (points !== 0) breakdown.push({ label: 'Your feedback', about: points > 0 ? 'You liked pieces or pairings like these' : 'You disliked something similar', points, max: 8 })
+
   const ordered = [...pieces].sort((a, b) => SLOT_ORDER.indexOf(slotOf(a)) - SLOT_ORDER.indexOf(slotOf(b)))
-  return { pieces: ordered, score: Math.max(0, Math.min(100, Math.round(score))), harmony, thermal, parts, loved }
+  return { pieces: ordered, score: Math.max(0, Math.min(100, Math.round(score))), harmony, thermal, parts, loved, breakdown }
 }
 
 // ---------- building outfits ----------
 
-/** Pieces allowed today: modesty, and anything ruled out by today's feedback. */
+/** Pieces allowed today: anything not ruled out by today's feedback. */
 export function allowedPieces(garments: Garment[], ctx: OutfitContext): Garment[] {
-  const minCoverage = MIN_COVERAGE[ctx.modesty ?? 3]
   const adj = ctx.adjust ?? NO_ADJUST
   return garments.filter(
     (g) =>
-      !(CLOTHING.includes(slotOf(g)) && g.coverage < minCoverage) &&
       !adj.avoidIds.includes(g.id) &&
       !adj.avoidSubtypes.includes(g.subtype),
   )
@@ -270,7 +312,10 @@ function bestBy(options: Garment[], base: Garment[], ctx: OutfitContext, thermal
 
 const daysSinceWorn = (g: Garment, now: Date) => (g.lastWornAt ? (now.getTime() - Date.parse(g.lastWornAt)) / DAY : 1e6)
 
-function pickJewellery(all: Garment[], ctx: OutfitContext): Garment[] {
+function pickJewellery(pieces: Garment[], ctx: OutfitContext): Garment[] {
+  let all = pieces
+  // Only a watch for workouts; more sparkle for festive days.
+  if (ctx.occasion === 'active') all = all.filter((j) => j.subtype === 'Watch')
   if (all.length === 0) return []
   const max = ctx.occasion === 'festive' ? 3 : ctx.occasion === 'evening' ? 2 : 1
   const target = ctxFormality(ctx)
@@ -298,6 +343,7 @@ function pickJewellery(all: Garment[], ctx: OutfitContext): Garment[] {
 const BAGS_FOR: Record<OccasionId, readonly string[]> = {
   work: ['Laptop bag', 'Tote', 'Handbag', 'Backpack'],
   casual: ['Sling bag', 'Tote', 'Backpack', 'Handbag'],
+  active: ['Backpack', 'Sling bag'],
   evening: ['Clutch', 'Handbag', 'Sling bag'],
   festive: ['Clutch', 'Handbag'],
   travel: ['Backpack', 'Sling bag', 'Tote'],
@@ -344,7 +390,8 @@ function addExtras(outfit: Outfit, slots: Record<Slot, Garment[]>, ctx: OutfitCo
     thermal.index >= 4 ? accessory('Scarf') : undefined,
     ctx.occasion === 'work' && ctx.routine === 'corporate' ? accessory('Tie') : undefined,
     ctx.occasion === 'festive' && pieces.some((p) => ['Kurti', 'Salwar suit'].includes(p.subtype)) ? accessory('Dupatta') : undefined,
-    ctx.occasion === 'travel' ? accessory('Headphones') : undefined,
+    ctx.occasion === 'travel' || ctx.occasion === 'active' ? accessory('Headphones') : undefined,
+    ctx.occasion === 'active' && w && isSunny(w) ? accessory('Cap / hat') : undefined,
   ]
   for (const e of extras) if (e && !pieces.includes(e)) pieces.push(e)
 
@@ -408,6 +455,7 @@ const dateFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'sho
 const OCCASION_PHRASE: Record<OccasionId, string> = {
   work: 'work',
   casual: 'a relaxed day',
+  active: 'a workout',
   evening: 'an evening out',
   festive: 'a festive occasion',
   travel: 'a day of travel',
@@ -439,7 +487,7 @@ export function explain(outfit: Outfit, ctx: OutfitContext): string[] {
 
   const target = Math.round(ctxFormality(ctx)) as Formality
   const what = ctx.occasion === 'work' ? WORK_PHRASE[ctx.routine ?? 'business-casual'] : OCCASION_PHRASE[ctx.occasion]
-  lines.push(`${FORMALITY_LABELS[Math.min(4, Math.max(1, target)) as Formality]} pieces suit ${what}.`)
+  lines.push(ctx.occasion === 'active' ? 'Sporty, comfortable pieces suit a workout.' : `${FORMALITY_LABELS[Math.min(4, Math.max(1, target)) as Formality]} pieces suit ${what}.`)
 
   const styles = ctx.styles ?? []
   if (styles.length && outfit.parts.style !== null && outfit.parts.style >= 0.5) {
@@ -456,7 +504,6 @@ export function explain(outfit: Outfit, ctx: OutfitContext): string[] {
     lines.push(`Fabrics and colors suit ${g.label}: ${g.thermalShift < 0 ? 'cooling and breathable' : 'warming and grounding'}.`)
   }
 
-  if ((ctx.modesty ?? 3) <= 2) lines.push('Keeps to your coverage preference.')
 
   const visible = outfit.pieces.filter((p) => VISIBLE.includes(slotOf(p)))
   const fresh = [...visible].sort((a, b) => daysSinceWorn(b, ctx.now) - daysSinceWorn(a, ctx.now))[0]

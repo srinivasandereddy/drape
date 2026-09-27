@@ -244,8 +244,9 @@ export async function getPhoto(id: string): Promise<StoredPhoto | undefined> {
 export function wipeLocalData(): Promise<void> {
   return write(async () => {
     const db = await getDb()
-    const tx = db.transaction(['garments', 'photos', 'outfits', 'feedback'], 'readwrite')
+    const tx = db.transaction(['garments', 'photos', 'outfits', 'feedback', 'trips'], 'readwrite')
     await Promise.all([
+      tx.objectStore('trips').clear(),
       tx.objectStore('garments').clear(),
       tx.objectStore('photos').clear(),
       tx.objectStore('outfits').clear(),

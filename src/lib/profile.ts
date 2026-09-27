@@ -3,7 +3,7 @@
 // wizard needs to finish.
 
 import { useEffect, useSyncExternalStore } from 'react'
-import { METAL_LABELS, type Coverage, type Formality, type Metal } from './catalog'
+import { METAL_LABELS, type Formality, type Metal } from './catalog'
 import { getDb } from './db'
 import { DOSHA_ORDER, DOSHA_QUESTIONS, scoreDosha, type DoshaId, type DoshaResult } from './dosha'
 import { STYLE_IDS, type StyleId } from './styles'
@@ -33,11 +33,6 @@ export const THEMES: readonly { id: ThemeId; label: string; swatch: [string, str
   { id: 'midnight', label: 'Midnight', swatch: ['#101217', '#8C9AFF'] },
 ]
 
-/** 1 full coverage … 5 edgy */
-export type Modesty = 1 | 2 | 3 | 4 | 5
-export const MODESTY_LABELS: Record<Modesty, string> = { 1: 'Full coverage', 2: 'Modest', 3: 'Balanced', 4: 'Relaxed', 5: 'Edgy' }
-/** The least coverage a suggested piece may have at each modesty setting. */
-export const MIN_COVERAGE: Record<Modesty, Coverage> = { 1: 5, 2: 4, 3: 2, 4: 1, 5: 1 }
 
 export interface Profile {
   name: string
@@ -48,7 +43,6 @@ export interface Profile {
   city: City | null
   routine: RoutineId | null
   styles: StyleId[]
-  modesty: Modesty
   metal: { kind: Metal | null; custom: string }
   theme: ThemeId
   dosha: DoshaResult | null
@@ -65,7 +59,6 @@ export const EMPTY_PROFILE: Profile = {
   city: null,
   routine: null,
   styles: [],
-  modesty: 3,
   metal: { kind: null, custom: '' },
   theme: 'classic',
   dosha: null,
@@ -102,7 +95,6 @@ export function normalizeProfile(raw: unknown): Profile {
     city,
     routine: ROUTINES.some((x) => x.id === raw.routine) ? (raw.routine as RoutineId) : null,
     styles: Array.isArray(raw.styles) ? [...new Set(raw.styles.filter((s): s is StyleId => STYLE_IDS.includes(s as StyleId)))] : [],
-    modesty: (numIn(raw.modesty, 1, 5) as Modesty | null) ?? 3,
     metal: { kind: typeof m.kind === 'string' && Object.hasOwn(METAL_LABELS, m.kind) ? (m.kind as Metal) : null, custom: str(m.custom, 40) },
     theme: THEMES.some((t) => t.id === raw.theme) ? (raw.theme as ThemeId) : 'classic',
     dosha: normalizeDosha(raw.dosha),

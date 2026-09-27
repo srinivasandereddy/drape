@@ -1,8 +1,6 @@
 import { useId } from 'react'
 import {
   CATEGORIES,
-  COVERAGE_LABELS,
-  defaultCoverage,
   FABRIC_LABELS,
   FORMALITY_LABELS,
   METAL_LABELS,
@@ -11,7 +9,6 @@ import {
   WARMTH_LABELS,
   categoryDef,
   type CategoryId,
-  type Coverage,
   type Fabric,
   type Formality,
   type Metal,
@@ -21,7 +18,8 @@ import {
 } from '../lib/catalog'
 import { colorName } from '../lib/color'
 import { NAME_MAX, sanitizeDraft, type GarmentDraft } from '../lib/model'
-import { guessStyles, STYLES, styleDef, type StyleId } from '../lib/styles'
+import { useProfile } from '../lib/profile'
+import { guessStyles, STYLES, styleDef, stylesFor, type StyleId } from '../lib/styles'
 import { optionsFrom } from '../lib/options'
 import { ChoiceChips, MultiChips } from './Chips'
 import { ColorsField } from './ColorSwatches'
@@ -33,8 +31,6 @@ const PATTERN_OPTIONS = optionsFrom<Pattern>(PATTERN_LABELS)
 const SEASON_OPTIONS = optionsFrom<Season>(SEASON_LABELS)
 const METAL_OPTIONS = optionsFrom<Metal>(METAL_LABELS)
 const FABRIC_OPTIONS = optionsFrom<Fabric>(FABRIC_LABELS)
-const COVERAGE_OPTIONS = optionsFrom<Coverage>(COVERAGE_LABELS, true)
-const STYLE_OPTIONS = STYLES.map((s) => ({ value: s.id, label: s.label }))
 
 type Props = { draft: GarmentDraft; onChange: (d: GarmentDraft) => void; colorStatus?: string | null }
 
@@ -42,6 +38,9 @@ export function GarmentForm({ draft, onChange, colorStatus }: Props) {
   const nameId = useId()
   const set = (patch: Partial<GarmentDraft>) => onChange(sanitizeDraft({ ...draft, ...patch }))
   const def = draft.category ? categoryDef(draft.category) : null
+  const { profile } = useProfile()
+  const offered = [...stylesFor(profile.gender.kind, 'fashion'), ...stylesFor(profile.gender.kind, 'activity')]
+  const styleOptions = [...offered, ...STYLES.filter((s) => draft.styleTags.includes(s.id) && !offered.includes(s))].map((s) => ({ value: s.id, label: s.label }))
   const guessed = guessStyles({ styleTags: [], subtype: draft.subtype }, draft.colors[0] ? colorName(draft.colors[0].hex) : null).slice(0, 3)
 
   return (
@@ -134,20 +133,11 @@ export function GarmentForm({ draft, onChange, colorStatus }: Props) {
             <ChoiceChips<Fabric> label="Fabric" hint="optional" options={FABRIC_OPTIONS} value={draft.fabric} onChange={(fabric) => set({ fabric })} clearable />
           )}
 
-          {def.has.warmth && def.id !== 'footwear' && (
-            <ChoiceChips<Coverage>
-              label="Coverage"
-              hint={draft.coverage === null ? `guessed: ${COVERAGE_LABELS[defaultCoverage(def.id, draft.subtype)]}` : 'set by you'}
-              options={COVERAGE_OPTIONS}
-              value={draft.coverage ?? defaultCoverage(def.id, draft.subtype)}
-              onChange={(coverage) => set({ coverage })}
-            />
-          )}
 
           <MultiChips<StyleId>
             label="Style"
             hint={guessed.length ? `Drape guesses ${guessed.map((s) => styleDef(s).label).join(', ')}` : 'optional'}
-            options={STYLE_OPTIONS}
+            options={styleOptions}
             values={draft.styleTags}
             onChange={(styleTags) => set({ styleTags })}
           />

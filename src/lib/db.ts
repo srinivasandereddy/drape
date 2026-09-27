@@ -9,10 +9,11 @@
 import { deleteDB, openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { FeedbackRecord } from './feedback'
 import type { Garment } from './model'
+import type { Trip } from './trip'
 
 /** Database used before accounts existed (v0.1–v0.3). */
 export const LEGACY_DB_NAME = 'drape'
-export const DB_VERSION = 3
+export const DB_VERSION = 4
 
 export interface StoredPhoto {
   id: string
@@ -44,11 +45,12 @@ interface DrapeDB extends DBSchema {
   meta: { key: string; value: MetaRecord }
   outfits: { key: string; value: OutfitRecord; indexes: { 'by-date': string } }
   feedback: { key: string; value: FeedbackRecord; indexes: { 'by-date': string } }
+  trips: { key: string; value: Trip }
 }
 
 export type DrapeDatabase = IDBPDatabase<DrapeDB>
-type StoreName = 'garments' | 'photos' | 'meta' | 'outfits' | 'feedback'
-const STORES: readonly StoreName[] = ['garments', 'photos', 'meta', 'outfits', 'feedback']
+type StoreName = 'garments' | 'photos' | 'meta' | 'outfits' | 'feedback' | 'trips'
+const STORES: readonly StoreName[] = ['garments', 'photos', 'meta', 'outfits', 'feedback', 'trips']
 
 function open(name: string): Promise<DrapeDatabase> {
   return openDB<DrapeDB>(name, DB_VERSION, {
@@ -66,6 +68,9 @@ function open(name: string): Promise<DrapeDatabase> {
       if (oldVersion < 3) {
         const feedback = db.createObjectStore('feedback', { keyPath: 'id' })
         feedback.createIndex('by-date', 'date')
+      }
+      if (oldVersion < 4) {
+        db.createObjectStore('trips', { keyPath: 'id' })
       }
     },
     blocking() {

@@ -32,6 +32,29 @@ export interface Weather {
 
 export const cityLabel = (c: City) => [c.name, c.region, c.country].filter(Boolean).join(', ')
 
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+
+/**
+ * Picks the place someone most likely means by a typed name. Search results are
+ * fuzzy ("Goa" also finds "Genoa"), so prefer, in order: an exact city name, a
+ * region with that name (Goa → a city in Goa, India), a country with that name,
+ * a place in the person's home country, then the first result.
+ */
+export function bestCityMatch(query: string, results: City[], homeCountry?: string): City | null {
+  const q = fold(query)
+  const home = homeCountry ? fold(homeCountry) : null
+  const inHome = (list: City[]) => (home ? (list.find((c) => fold(c.country) === home) ?? list[0]) : list[0])
+  const exact = results.filter((c) => fold(c.name) === q)
+  if (exact.length) return inHome(exact) ?? null
+  const region = results.filter((c) => fold(c.region) === q)
+  if (region.length) return inHome(region) ?? null
+  const country = results.filter((c) => fold(c.country) === q)
+  if (country.length) return country[0] ?? null
+  const starts = results.filter((c) => fold(c.name).startsWith(q))
+  if (starts.length) return inHome(starts) ?? null
+  return null
+}
+
 const TIMEOUT_MS = 8000
 const CACHE_MS = 30 * 60 * 1000
 
@@ -58,7 +81,7 @@ const first = (v: unknown): unknown => (Array.isArray(v) ? v[0] : undefined)
 export async function searchCities(query: string): Promise<City[]> {
   const q = query.trim()
   if (q.length < 2) return []
-  const params = new URLSearchParams({ name: q, count: '6', language: 'en', format: 'json' })
+  const params = new URLSearchParams({ name: q, count: '10', language: 'en', format: 'json' })
   const data = rec(await getJson(`https://geocoding-api.open-meteo.com/v1/search?${params}`))
   const results = Array.isArray(data.results) ? data.results : []
   return results.map(rec).flatMap((r) =>
@@ -166,4 +189,92 @@ export function seasonFromWeather(w: Weather): WeatherSeason {
   if (w.feelsLike >= 26) return 'summer'
   if (w.feelsLike < 18) return 'winter'
   return null
+}
+
+// ---------- weather for trip dates ----------
+
+export interface DayWeather {
+  date: string
+  weather: Weather
+  /** 'forecast' for the next ~2 weeks; 'typical' = the same dates last year, for trips further ahead. */
+  source: 'forecast' | 'typical'
+}
+
+const FORECAST_DAYS = 15
+
+/** Turns an Open-Meteo "daily" reply into one Weather per day. Exported for tests. */
+export function parseDaily(raw: unknown, source: DayWeather['source'], dates: string[]): DayWeather[] {
+  const daily = rec(rec(raw).daily)
+  const times = Array.isArray(daily.time) ? (daily.time as unknown[]) : []
+  const at = (key: string, i: number) => (Array.isArray(daily[key]) ? (daily[key] as unknown[])[i] : undefined)
+  const out: DayWeather[] = []
+  times.forEach((t, i) => {
+    if (typeof t !== 'string') return
+    const max = num(at('temperature_2m_max', i), NaN)
+    const min = num(at('temperature_2m_min', i), NaN)
+    if (!Number.isFinite(max) || !Number.isFinite(min)) return
+    const fMax = num(at('apparent_temperature_max', i), max)
+    const fMin = num(at('apparent_temperature_min', i), min)
+    const sum = num(at('precipitation_sum', i), 0)
+    const prob = at('precipitation_probability_max', i)
+    const daytime = (hi: number, lo: number) => hi * 0.7 + lo * 0.3
+    out.push({
+      date: t,
+      source,
+      weather: {
+        temp: daytime(max, min),
+        feelsLike: daytime(fMax, fMin),
+        humidity: 60,
+        precipitation: sum > 2 ? 1 : 0,
+        windKmh: num(at('wind_speed_10m_max', i), 10),
+        code: num(at('weather_code', i), 1),
+        todayMax: max,
+        todayMin: min,
+        rainChance: typeof prob === 'number' ? prob : sum > 2 ? 70 : 10,
+        uvMax: num(at('uv_index_max', i), 5),
+        fetchedAt: new Date().toISOString(),
+      },
+    })
+  })
+  // Keep the requested dates only, in order (typical-weather rows are re-dated to this year).
+  return dates.map((d, i) => out.find((o) => o.date === d) ?? (source === 'typical' && out[i] ? { ...out[i]!, date: d } : null)).filter((x): x is DayWeather => x !== null)
+}
+
+const tripCache = new Map<string, DayWeather[]>()
+const shiftYear = (d: string, by: number) => `${Number(d.slice(0, 4)) + by}${d.slice(4)}`
+
+/** Weather for each trip date: the forecast where available, otherwise last year's weather on those dates. */
+export async function getTripWeather(city: City, dates: string[], today: Date = new Date()): Promise<DayWeather[]> {
+  if (dates.length === 0) return []
+  const key = `${cacheKey(city)}|${dates[0]}|${dates[dates.length - 1]}`
+  const hit = tripCache.get(key)
+  if (hit) return hit
+  const horizon = new Date(today)
+  horizon.setDate(horizon.getDate() + FORECAST_DAYS)
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const cutoff = iso(horizon)
+  const soon = dates.filter((d) => d <= cutoff)
+  const later = dates.filter((d) => d > cutoff)
+  const base = { latitude: String(city.latitude), longitude: String(city.longitude), timezone: 'auto' }
+  const parts: DayWeather[] = []
+  if (soon.length) {
+    const p = new URLSearchParams({
+      ...base,
+      daily: 'temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,weather_code,uv_index_max,wind_speed_10m_max',
+      start_date: soon[0]!,
+      end_date: soon[soon.length - 1]!,
+    })
+    parts.push(...parseDaily(await getJson(`https://api.open-meteo.com/v1/forecast?${p}`), 'forecast', soon))
+  }
+  if (later.length) {
+    const p = new URLSearchParams({
+      ...base,
+      daily: 'temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,weather_code,wind_speed_10m_max',
+      start_date: shiftYear(later[0]!, -1),
+      end_date: shiftYear(later[later.length - 1]!, -1),
+    })
+    parts.push(...parseDaily(await getJson(`https://archive-api.open-meteo.com/v1/archive?${p}`), 'typical', later))
+  }
+  tripCache.set(key, parts)
+  return parts
 }

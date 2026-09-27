@@ -7,6 +7,7 @@ import { closeDb, deleteAccountDb, selectAccountDb } from './db'
 import { fetchUser, signIn, signOut as driveSignOut, type GoogleUser } from './drive'
 import { prefs } from './platform'
 import { resetProfileStore } from './profile'
+import { resetTripsStore } from './trips'
 
 export type Account = GoogleUser
 
@@ -31,6 +32,7 @@ function switchTo(next: Account | null) {
     selectAccountDb(next?.sub ?? null)
     resetClosetStore()
     resetProfileStore()
+    resetTripsStore()
   }
   current = next
   if (next) prefs.set('account', JSON.stringify(next))

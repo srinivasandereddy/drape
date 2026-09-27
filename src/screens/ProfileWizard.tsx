@@ -7,18 +7,16 @@ import { useToast } from '../components/toastContext'
 import { METAL_LABELS, type Metal } from '../lib/catalog'
 import type { DoshaResult } from '../lib/dosha'
 import {
-  MODESTY_LABELS,
   ROUTINES,
   saveProfile,
   THEMES,
   useProfile,
   type GenderKind,
-  type Modesty,
   type Profile,
   type RoutineId,
   type ThemeId,
 } from '../lib/profile'
-import { STYLES, type StyleId } from '../lib/styles'
+import { STYLES, stylesFor, type StyleId } from '../lib/styles'
 import { cityLabel } from '../lib/weather'
 import { DoshaQuiz, DoshaResultCard } from './DoshaQuiz'
 
@@ -35,7 +33,8 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
   const [draft, setDraft] = useState<Profile>(() => ({ ...profile, name: profile.name || defaultName }))
   const [quizOpen, setQuizOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const ids = { name: useId(), age: useId(), gender: useId(), height: useId(), weight: useId(), modesty: useId(), metal: useId() }
+  const [allStyles, setAllStyles] = useState(false)
+  const ids = { name: useId(), age: useId(), gender: useId(), height: useId(), weight: useId(), metal: useId() }
   const set = (patch: Partial<Profile>) => setDraft((d) => ({ ...d, ...patch }))
   const last = step === STEPS.length - 1
   // Closing without finishing undoes the theme preview.
@@ -54,6 +53,13 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
       toast(e instanceof Error ? e.message : 'Could not save your profile.', 'error')
       setSaving(false)
     }
+  }
+
+  // Styles suggested for the chosen gender first; anything already picked always stays visible.
+  const styleOptions = (group: 'fashion' | 'activity') => {
+    const offered = allStyles ? STYLES.filter((s) => s.group === group) : stylesFor(draft.gender.kind, group)
+    const extra = STYLES.filter((s) => s.group === group && draft.styles.includes(s.id) && !offered.includes(s))
+    return [...offered, ...extra].map((s) => ({ value: s.id, label: s.label }))
   }
 
   const numberOrNull = (v: string, min: number, max: number) => {
@@ -198,30 +204,22 @@ export function ProfileWizard({ onClose, startAt = 0, defaultName = '' }: Props)
             <MultiChips<StyleId>
               label="Styles you love"
               hint="pick any"
-              options={STYLES.map((s) => ({ value: s.id, label: s.label }))}
+              options={styleOptions('fashion')}
               values={draft.styles}
               onChange={(styles) => set({ styles })}
             />
-            <div className="field">
-              <label className="field-label" htmlFor={ids.modesty}>
-                Coverage <span className="field-hint">· {MODESTY_LABELS[draft.modesty]}</span>
-              </label>
-              <input
-                id={ids.modesty}
-                className="range"
-                type="range"
-                min={1}
-                max={5}
-                step={1}
-                value={draft.modesty}
-                aria-valuetext={MODESTY_LABELS[draft.modesty]}
-                onChange={(e) => set({ modesty: Number(e.target.value) as Modesty })}
-              />
-              <div className="range-labels small muted">
-                <span>Modest / full coverage</span>
-                <span>Revealing / edgy</span>
-              </div>
-            </div>
+            <MultiChips<StyleId>
+              label="Activities you dress for"
+              hint="pick any"
+              options={styleOptions('activity')}
+              values={draft.styles}
+              onChange={(styles) => set({ styles })}
+            />
+            {draft.gender.kind && draft.gender.kind !== 'other' && !allStyles && (
+              <button type="button" className="link small" onClick={() => setAllStyles(true)}>
+                Show all styles
+              </button>
+            )}
             <ChoiceChips<Metal>
               label="Jewellery metal"
               options={(['gold', 'silver', 'rose-gold', 'other'] as Metal[]).map((m) => ({ value: m, label: METAL_LABELS[m] }))}

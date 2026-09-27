@@ -19,8 +19,6 @@ export type Pattern = 'solid' | 'striped' | 'checked' | 'printed' | 'floral' | '
 export type Season = 'summer' | 'monsoon' | 'winter'
 export type Metal = 'gold' | 'silver' | 'rose-gold' | 'other'
 export type Fabric = 'cotton' | 'linen' | 'silk' | 'wool' | 'knit' | 'denim' | 'leather' | 'synthetic' | 'other'
-/** 1 = revealing … 5 = full coverage */
-export type Coverage = 1 | 2 | 3 | 4 | 5
 
 export interface CategoryDef {
   id: CategoryId
@@ -33,9 +31,9 @@ export interface CategoryDef {
 const CLOTHING = { pattern: true, warmth: true, metal: false } as const
 
 export const CATEGORIES: readonly CategoryDef[] = [
-  { id: 'top', label: 'Top', has: CLOTHING, subtypes: ['T-shirt', 'Shirt', 'Polo', 'Blouse', 'Sweater', 'Hoodie', 'Tank top', 'Crop top'] },
+  { id: 'top', label: 'Top', has: CLOTHING, subtypes: ['T-shirt', 'Shirt', 'Polo', 'Blouse', 'Sweater', 'Hoodie', 'Tank top', 'Crop top', 'Sports tee', 'Sports bra'] },
   { id: 'bottom', label: 'Bottom', has: CLOTHING, subtypes: ['Jeans', 'Trousers', 'Chinos', 'Shorts', 'Skirt', 'Joggers', 'Leggings'] },
-  { id: 'outerwear', label: 'Layer', has: CLOTHING, subtypes: ['Jacket', 'Blazer', 'Coat', 'Cardigan', 'Overshirt', 'Raincoat'] },
+  { id: 'outerwear', label: 'Layer', has: CLOTHING, subtypes: ['Jacket', 'Blazer', 'Coat', 'Cardigan', 'Overshirt', 'Raincoat', 'Track jacket'] },
   { id: 'dress', label: 'Dress', has: CLOTHING, subtypes: ['Casual dress', 'Formal dress', 'Jumpsuit', 'Co-ord set'] },
   {
     id: 'ethnic',
@@ -47,7 +45,7 @@ export const CATEGORIES: readonly CategoryDef[] = [
     id: 'footwear',
     label: 'Footwear',
     has: { pattern: false, warmth: true, metal: false },
-    subtypes: ['Sneakers', 'Formal shoes', 'Loafers', 'Boots', 'Heels', 'Flats', 'Sandals', 'Kolhapuris', 'Slippers'],
+    subtypes: ['Sneakers', 'Running shoes', 'Formal shoes', 'Loafers', 'Boots', 'Heels', 'Flats', 'Sandals', 'Kolhapuris', 'Slippers'],
   },
   {
     id: 'jewellery',
@@ -101,27 +99,6 @@ export const FABRIC_LABELS: Record<Fabric, string> = {
   synthetic: 'Synthetic',
   other: 'Other',
 }
-export const COVERAGE_LABELS: Record<Coverage, string> = { 1: 'Revealing', 2: 'Some skin', 3: 'Balanced', 4: 'Covered', 5: 'Full' }
-
-const LOW_COVERAGE: Record<string, Coverage> = {
-  'Crop top': 2,
-  'Tank top': 2,
-  Shorts: 2,
-  Skirt: 3,
-  'Casual dress': 3,
-  'Formal dress': 3,
-  Blouse: 4,
-  'Co-ord set': 3,
-}
-const FULL_COVERAGE = new Set(['Saree', 'Salwar suit', 'Lehenga', 'Sherwani', 'Kurta', 'Kurti', 'Jumpsuit', 'Trousers', 'Jeans', 'Chinos', 'Joggers', 'Leggings', 'Coat', 'Raincoat'])
-
-/** How much a piece covers, guessed from its type. Only clothes matter for the modesty setting. */
-export function defaultCoverage(category: CategoryId, subtype: string): Coverage {
-  if (!categoryDef(category).has.warmth || category === 'footwear') return 5 // shoes, jewellery, bags: not counted
-  if (LOW_COVERAGE[subtype]) return LOW_COVERAGE[subtype]
-  if (FULL_COVERAGE.has(subtype)) return 5
-  return 4
-}
 
 const FABRIC_BY_SUBTYPE: Record<string, Fabric> = {
   Jeans: 'denim',
@@ -129,6 +106,11 @@ const FABRIC_BY_SUBTYPE: Record<string, Fabric> = {
   Cardigan: 'knit',
   Hoodie: 'knit',
   'T-shirt': 'cotton',
+  'Sports tee': 'synthetic',
+  'Sports bra': 'synthetic',
+  'Track jacket': 'synthetic',
+  'Running shoes': 'synthetic',
+  Leggings: 'synthetic',
   Polo: 'cotton',
   Kurta: 'cotton',
   Kurti: 'cotton',
@@ -142,6 +124,10 @@ export const defaultFabric = (subtype: string): Fabric | null => FABRIC_BY_SUBTY
 
 const FORMALITY_BY_SUBTYPE: Record<string, Formality> = {
   Hoodie: 1,
+  'Sports tee': 1,
+  'Sports bra': 1,
+  'Track jacket': 1,
+  'Running shoes': 1,
   Joggers: 1,
   Leggings: 1,
   Slippers: 1,
@@ -180,7 +166,7 @@ const FORMALITY_BY_SUBTYPE: Record<string, Formality> = {
 export const defaultFormality = (subtype: string): Formality => FORMALITY_BY_SUBTYPE[subtype] ?? 2
 
 const WARM_SUBTYPES = new Set(['Sweater', 'Hoodie', 'Coat', 'Cardigan', 'Boots', 'Jacket'])
-const LIGHT_SUBTYPES = new Set(['Tank top', 'Crop top', 'Shorts', 'Sandals', 'Slippers', 'Kolhapuris', 'Flats'])
+const LIGHT_SUBTYPES = new Set(['Tank top', 'Crop top', 'Sports tee', 'Sports bra', 'Shorts', 'Sandals', 'Slippers', 'Kolhapuris', 'Flats'])
 /** 1 light … 3 warm, guessed from type and fabric. */
 export function defaultWarmth(subtype: string, fabric: Fabric | null): Warmth {
   if (fabric === 'wool' || fabric === 'knit' || WARM_SUBTYPES.has(subtype)) return 3

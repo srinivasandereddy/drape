@@ -5,7 +5,7 @@ import { GarmentForm } from '../components/GarmentForm'
 import { PieceImage } from '../components/PieceImage'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
-import { COVERAGE_LABELS, FABRIC_LABELS, FORMALITY_LABELS, METAL_LABELS, PATTERN_LABELS, SEASON_LABELS, WARMTH_LABELS, categoryDef } from '../lib/catalog'
+import { FABRIC_LABELS, FORMALITY_LABELS, METAL_LABELS, PATTERN_LABELS, SEASON_LABELS, WARMTH_LABELS, categoryDef } from '../lib/catalog'
 import { deleteGarment, editGarment, setGarmentPhoto, useCloset, wearGarment } from '../lib/closet'
 import { extractColorsFromBlob } from '../lib/color'
 import { PhotoError, processPhoto } from '../lib/image'
@@ -27,7 +27,6 @@ function details(g: Garment): [string, ReactNode][] {
   if (g.pattern) rows.push(['Pattern', PATTERN_LABELS[g.pattern]])
   if (g.metal) rows.push(['Metal', METAL_LABELS[g.metal]])
   if (g.fabric) rows.push(['Fabric', FABRIC_LABELS[g.fabric]])
-  if (categoryDef(g.category).has.warmth && g.category !== 'footwear') rows.push(['Coverage', COVERAGE_LABELS[g.coverage]])
   if (g.styleTags.length) rows.push(['Style', g.styleTags.map((s) => styleDef(s).label).join(', ')])
   if (g.source === 'sample') rows.push(['Added as', 'Sample piece'])
   rows.push(['Seasons', g.seasons.length ? g.seasons.map((s) => SEASON_LABELS[s]).join(', ') : 'All year'])

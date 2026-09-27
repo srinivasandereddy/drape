@@ -25,11 +25,12 @@ import {
 import { colorsInText } from '../lib/parser'
 import { useProfile } from '../lib/profile'
 import { loadSampleWardrobe } from '../lib/sampleLoader'
-import { parseStyles, styleDef } from '../lib/styles'
+import { parseStyles, styleDef, type StyleId } from '../lib/styles'
 import { FEELING_LABELS, THERMAL_LABELS, type Feeling } from '../lib/thermal'
 import { useWeather } from '../lib/useWeather'
-import { cityLabel, describeCode, isRainy, searchCities, type City, type Weather } from '../lib/weather'
+import { bestCityMatch, cityLabel, describeCode, isRainy, searchCities, type City, type Weather } from '../lib/weather'
 import { DislikeSheet } from './DislikeSheet'
+import { ScoreSheet } from './ScoreSheet'
 import { SwapSheet } from './SwapSheet'
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
@@ -48,6 +49,13 @@ interface DayState {
 }
 
 const todayKey = () => new Date().toDateString()
+
+/** Workouts lean on the person's activity styles (or Gym); other days on their fashion styles. */
+function defaultStyles(occasion: OccasionId, styles: StyleId[]): StyleId[] {
+  const activity = styles.filter((s) => styleDef(s).group === 'activity')
+  if (occasion === 'active') return activity.length ? activity : ['gym']
+  return styles.filter((s) => styleDef(s).group === 'fashion')
+}
 function loadDay(): DayState {
   const fresh: DayState = { date: todayKey(), feeling: null, where: '', vibe: '', occasion: null, adjust: NO_ADJUST, useHome: false }
   try {
@@ -80,6 +88,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
   // ----- where are you going: occasion and maybe another city -----
   const intent = useMemo(() => parseIntent(day.where), [day.where])
   const [dest, setDest] = useState<{ query: string; city: City | null }>({ query: '', city: null })
+  const homeCountry = profile.city?.country
   useEffect(() => {
     const place = intent.place
     if (!place || place === dest.query) return
@@ -87,7 +96,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
     const t = setTimeout(() => {
       searchCities(place)
         .then((r) => {
-          if (!cancelled) setDest({ query: place, city: r[0] ?? null })
+          if (!cancelled) setDest({ query: place, city: bestCityMatch(place, r, homeCountry) })
         })
         .catch(() => {
           if (!cancelled) setDest({ query: place, city: null })
@@ -97,7 +106,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
       cancelled = true
       clearTimeout(t)
     }
-  }, [intent.place, dest.query])
+  }, [intent.place, dest.query, homeCountry])
   const destCity = intent.place && dest.query === intent.place && !day.useHome ? dest.city : null
   const activeCity = destCity ?? profile.city
   const wx = useWeather(activeCity)
@@ -143,9 +152,8 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
       now,
       feeling: day.feeling,
       dosha: profile.dosha?.primary ?? null,
-      styles: vibeStyles.length ? vibeStyles : profile.styles,
+      styles: vibeStyles.length ? vibeStyles : defaultStyles(occasion, profile.styles),
       wishColors,
-      modesty: profile.modesty,
       metal: profile.metal.kind,
       affinity,
       adjust: day.adjust,
@@ -171,6 +179,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
   const [swapPicker, setSwapPicker] = useState(false)
   const [swapFor, setSwapFor] = useState<Garment | null>(null)
   const [disliking, setDisliking] = useState(false)
+  const [scoreOpen, setScoreOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const resetIdeas = () => {
@@ -355,15 +364,12 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
       {status === 'ready' && missing.length === 0 && !outfit && (
         <div className="card stack-sm">
           <h2>Nothing fits today's settings</h2>
-          <p className="muted">Your coverage setting or today's "Don't like" answers rule out every combination. Loosen them, or add a few more pieces.</p>
+          <p className="muted">Today's "Don't like" answers rule out every combination. Undo them, or add a few more pieces.</p>
           {adjusted && (
             <button type="button" className="btn" onClick={() => setDay({ adjust: NO_ADJUST })}>
               Undo today's "Don't like" answers
             </button>
           )}
-          <button type="button" className="btn" onClick={onEditProfile}>
-            Check my coverage setting
-          </button>
         </div>
       )}
 
@@ -371,9 +377,13 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
         <article className="card outfit" aria-label={showingWorn ? 'Today’s outfit' : 'Suggested outfit'}>
           <header className="outfit-head">
             {/* A worn outfit's score drops (its pieces were just worn), so show only the harmony. */}
-            <span className={`badge ${showingWorn || outfit.score >= 80 ? 'good' : ''}`}>
-              {showingWorn ? outfit.harmony.label : `${outfit.harmony.label} · ${outfit.score}`}
-            </span>
+            {showingWorn ? (
+              <span className="badge good">{outfit.harmony.label}</span>
+            ) : (
+              <button type="button" className={`badge badge-btn ${outfit.score >= 80 ? 'good' : ''}`} onClick={() => setScoreOpen(true)} aria-label={`Score ${outfit.score}. How was this scored?`}>
+                {outfit.harmony.label} · {outfit.score} <span aria-hidden="true">ⓘ</span>
+              </button>
+            )}
             {showingWorn ? (
               <span className="muted small">
                 <Check size={14} aria-hidden="true" /> Wearing today
@@ -497,6 +507,8 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
           }}
         />
       )}
+
+      {scoreOpen && outfit && <ScoreSheet outfit={outfit} onClose={() => setScoreOpen(false)} />}
 
       {disliking && outfit && (
         <DislikeSheet onClose={() => setDisliking(false)} onPick={(r, n) => void dislike(r, n)} hasHeels={outfit.pieces.some((p) => p.subtype === 'Heels')} />

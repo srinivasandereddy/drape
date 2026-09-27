@@ -8,7 +8,7 @@ import { explain, scoreOutfit, slotOf, suggestOutfits, type OutfitContext } from
 import { parseItem, parseList } from './parser'
 import { EMPTY_PROFILE, normalizeProfile } from './profile'
 import { sampleSections } from './sample'
-import { parseStyles } from './styles'
+import { parseStyles, stylesFor } from './styles'
 import { thermalIndex } from './thermal'
 import type { Weather } from './weather'
 
@@ -95,7 +95,8 @@ describe('intent and vibe', () => {
   it('understands occasions from both prompts', () => {
     expect(parseIntent('Dinner date in Paris')).toMatchObject({ occasion: 'evening', place: 'Paris' })
     expect(parseIntent('Office presentation')).toMatchObject({ occasion: 'work', formalityShift: 1 })
-    expect(parseIntent('Gym session')).toMatchObject({ occasion: 'casual', preferShoes: ['Sneakers'] })
+    expect(parseIntent('Gym session')).toMatchObject({ occasion: 'active', preferShoes: ['Running shoes', 'Sneakers'] })
+    expect(parseIntent('morning run').occasion).toBe('active')
     expect(parseIntent('cousin’s wedding in jaipur')).toMatchObject({ occasion: 'festive', place: 'Jaipur' })
     expect(parseIntent('unexpected evening party tonight').occasion).toBe('evening')
     expect(parseIntent('coffee in the evening').place).toBeNull()
@@ -154,14 +155,6 @@ describe('personal engine', () => {
   const silverWatch = g({ category: 'jewellery', subtype: 'Watch', metal: 'silver', formality: 3 })
   const closet = [tee, crop, jeans, shorts, sneakers, heels, cardigan, goldRing, silverWatch]
 
-  it('respects the modesty setting', () => {
-    for (const o of suggestOutfits(closet, ctx({ modesty: 2 }))) {
-      expect(o.pieces).not.toContain(crop)
-      expect(o.pieces).not.toContain(shorts)
-    }
-    const edgy = suggestOutfits(closet, ctx({ modesty: 5 })).flatMap((o) => o.pieces)
-    expect(edgy).toContain(crop)
-  })
   it('sticks to the preferred metal', () => {
     for (const o of suggestOutfits(closet, ctx({ metal: 'gold', occasion: 'evening' }))) {
       expect(o.pieces).not.toContain(silverWatch)
@@ -180,12 +173,11 @@ describe('personal engine', () => {
     expect(o!.pieces).toContain(pinkTop)
     expect(explain(o!, ctx({ styles: ['coquette'], wishColors: ['Pink'] })).join(' ')).toMatch(/Coquette|pink/)
   })
-  it('explains dosha, modesty and feeling', () => {
-    const c = ctx({ dosha: 'pitta', feeling: 'warm', modesty: 2, weather: weather(30) })
+  it('explains dosha and feeling', () => {
+    const c = ctx({ dosha: 'pitta', feeling: 'warm', weather: weather(30) })
     const lines = explain(suggestOutfits(closet, c)[0]!, c)
     expect(lines[0]).toMatch(/Pitta runs warm/)
     expect(lines[0]).toMatch(/you feel warm today/)
-    expect(lines.join(' ')).toMatch(/coverage/)
   })
 })
 
@@ -225,24 +217,66 @@ describe('feedback loop', () => {
 })
 
 describe('storage safety', () => {
-  it('upgrades old garments with coverage, source and styles', () => {
+  it('upgrades old garments with source and styles, and drops retired fields', () => {
     const old = { ...createGarment({ ...emptyDraft(), category: 'bottom', subtype: 'Shorts' }, { width: 10, height: 10 }, NOW) } as Record<string, unknown>
-    delete old.coverage
+    old.coverage = 2 // retired field
     delete old.source
     delete old.fabric
     old.styleTags = ['old-money', 'not-a-style']
     const g2 = normalizeGarment(old)!
-    expect(g2).toMatchObject({ coverage: 2, source: 'photo', fabric: null, styleTags: ['old-money'] })
+    expect(g2).toMatchObject({ source: 'photo', fabric: null, styleTags: ['old-money'] })
+    expect(g2).not.toHaveProperty('coverage')
   })
   it('repairs a damaged profile', () => {
     expect(normalizeProfile(null)).toEqual(EMPTY_PROFILE)
     const p = normalizeProfile({ age: 500, modesty: 9, styles: ['goth', 'nope'], theme: 'neon', gender: { kind: 'other', custom: 'Genderfluid' }, dosha: { answers: ['vata'] } })
-    expect(p).toMatchObject({ age: null, modesty: 3, styles: ['goth'], theme: 'classic', gender: { kind: 'other', custom: 'Genderfluid' }, dosha: null })
+    expect(p).toMatchObject({ age: null, styles: ['goth'], theme: 'classic', gender: { kind: 'other', custom: 'Genderfluid' }, dosha: null })
+    expect(p).not.toHaveProperty('modesty')
   })
 })
 
 describe('slots', () => {
   it('still places pieces', () => {
     expect(slotOf({ category: 'accessory', subtype: 'Headphones' })).toBe('accessory')
+  })
+})
+
+describe('styles by gender and activities', () => {
+  it('offers men’s and activity styles to men, without hiding anything they chose', () => {
+    const male = stylesFor('male', 'fashion').map((s) => s.id)
+    expect(male).not.toContain('coquette')
+    expect(male).not.toContain('clean-girl')
+    expect(male).toContain('gentleman')
+    expect(male).toContain('smart-casual')
+    expect(stylesFor('female', 'fashion').map((s) => s.id)).not.toContain('gentleman')
+    expect(stylesFor(null, 'fashion').map((s) => s.id)).toContain('coquette')
+    expect(stylesFor('male', 'activity').map((s) => s.id)).toEqual(['gym', 'running', 'yoga', 'sports', 'outdoors'])
+  })
+  it('reads activity words', () => {
+    expect(parseStyles('gym')).toEqual(['gym'])
+    expect(parseStyles('going for a run')).toEqual(['running'])
+    expect(parseStyles('hiking trip')).toEqual(['outdoors'])
+  })
+  it('reads activewear in typed lists', () => {
+    expect(parseItem('Nike running shoes').draft).toMatchObject({ category: 'footwear', subtype: 'Running shoes', fabric: 'synthetic' })
+    expect(parseItem('Black dri-fit tee').draft).toMatchObject({ category: 'top', subtype: 'Sports tee' })
+    expect(parseItem('Grey track jacket').draft).toMatchObject({ category: 'outerwear', subtype: 'Track jacket' })
+  })
+  it('dresses for a workout in sportswear and running shoes', () => {
+    const shirt = g({ subtype: 'Shirt', hex: '#F4F4F1', formality: 3, warmth: 1 })
+    const sportsTee = g({ subtype: 'Sports tee', hex: '#1B1B1D', formality: 1, warmth: 1, fabric: 'synthetic' })
+    const chinos = g({ category: 'bottom', subtype: 'Chinos', hex: '#D8C4A2', formality: 3 })
+    const joggers = g({ category: 'bottom', subtype: 'Joggers', hex: '#8A8D91', formality: 1, fabric: 'synthetic' })
+    const loafers = g({ category: 'footwear', subtype: 'Loafers', hex: '#6B4A33', formality: 3 })
+    const runners = g({ category: 'footwear', subtype: 'Running shoes', hex: '#F4F4F1', formality: 1 })
+    const ring = g({ category: 'jewellery', subtype: 'Ring', metal: 'gold', formality: 3 })
+    const oxford = g({ subtype: 'Shirt', hex: '#8DB9E2', formality: 3, warmth: 1 })
+    const grayTee = g({ subtype: 'Sports tee', hex: '#8A8D91', formality: 1, warmth: 1, fabric: 'synthetic' })
+    // Even with a nicer color match available (sky blue shirt + grey), the gym gets gym clothes.
+    const [o2] = suggestOutfits([oxford, grayTee, joggers, runners], ctx({ occasion: 'active', styles: ['gym', 'running'] }))
+    expect(o2!.pieces).toContain(grayTee)
+    const [o] = suggestOutfits([shirt, sportsTee, chinos, joggers, loafers, runners, ring], ctx({ occasion: 'active', styles: ['gym'] }))
+    expect(o!.pieces).toEqual(expect.arrayContaining([sportsTee, joggers, runners]))
+    expect(o!.pieces).not.toContain(ring)
   })
 })

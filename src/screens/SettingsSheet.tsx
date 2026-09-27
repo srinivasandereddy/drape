@@ -7,7 +7,7 @@ import { storageEstimate } from '../lib/db'
 import { doshaLabel } from '../lib/dosha'
 import { hasDriveAccess, isSignedIn, listFiles, writeJson } from '../lib/drive'
 import { APP_VERSION, isStandalone } from '../lib/platform'
-import { metalLabel, MODESTY_LABELS, routineDef, THEMES, useProfile } from '../lib/profile'
+import { metalLabel, routineDef, THEMES, useProfile } from '../lib/profile'
 import { styleDef } from '../lib/styles'
 import { cityLabel } from '../lib/weather'
 
@@ -58,7 +58,6 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
     ['City', profile.city ? cityLabel(profile.city) : null],
     ['Weekday', routineDef(profile.routine)?.label ?? null],
     ['Styles', profile.styles.length ? profile.styles.map((s) => styleDef(s).label).join(', ') : null],
-    ['Coverage', MODESTY_LABELS[profile.modesty]],
     ['Metal', metalLabel(profile)],
     ['Dosha', profile.dosha ? doshaLabel(profile.dosha) : null],
     ['Colors', THEMES.find((t) => t.id === profile.theme)?.label ?? null],

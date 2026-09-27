@@ -1,4 +1,4 @@
-import { Palette, Plus, Settings, Shirt, Sun } from 'lucide-react'
+import { Luggage, Palette, Plus, Settings, Shirt, Sparkles, Sun } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { InstallBanner } from './components/InstallBanner'
 import { useToast } from './components/toastContext'
@@ -14,12 +14,14 @@ import { GarmentSheet } from './screens/GarmentSheet'
 import { ProfileWizard } from './screens/ProfileWizard'
 import { QuickAddSheet } from './screens/QuickAddSheet'
 import { SettingsSheet } from './screens/SettingsSheet'
+import { AssistantSheet } from './screens/AssistantSheet'
 import { SignInScreen } from './screens/SignInScreen'
 import { SpectrumScreen } from './screens/SpectrumScreen'
 import { TodayScreen } from './screens/TodayScreen'
+import { TripEditor, TripSheet, TripsScreen, type TripPrefill } from './screens/TripsScreens'
 
-type Tab = 'today' | 'closet' | 'spectrum'
-const TABS: readonly Tab[] = ['today', 'closet', 'spectrum']
+type Tab = 'today' | 'closet' | 'spectrum' | 'trips'
+const TABS: readonly Tab[] = ['today', 'closet', 'spectrum', 'trips']
 
 export default function App() {
   const account = useAccount()
@@ -40,6 +42,9 @@ function SignedIn({ account }: { account: Account }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [wizard, setWizard] = useState<{ step: number } | null>(null)
   const [autoWizardDone, setAutoWizardDone] = useState(false)
+  const [asking, setAsking] = useState(false)
+  const [tripEditor, setTripEditor] = useState<TripPrefill | null>(null)
+  const [openTripId, setOpenTripId] = useState<string | null>(null)
 
   // Apply the person's chosen colors.
   useEffect(() => {
@@ -69,6 +74,11 @@ function SignedIn({ account }: { account: Account }) {
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const editProfile = useCallback((step = 0) => setWizard({ step }), [])
   const closeWizard = useCallback(() => setWizard(null), [])
+  const closeTrip = useCallback(() => setOpenTripId(null), [])
+  const planTrip = useCallback((prefill: TripPrefill = {}) => {
+    setAsking(false)
+    setTripEditor(prefill)
+  }, [])
 
   return (
     <div className="app">
@@ -86,7 +96,12 @@ function SignedIn({ account }: { account: Account }) {
         {tab === 'today' && <TodayScreen onAdd={openAdd} onQuickAdd={openQuick} onEditProfile={() => editProfile(0)} />}
         {tab === 'closet' && <ClosetScreen onOpen={setOpenId} onAdd={openAdd} onQuickAdd={openQuick} />}
         {tab === 'spectrum' && <SpectrumScreen onOpen={setOpenId} />}
+        {tab === 'trips' && <TripsScreen onPlan={() => planTrip()} onOpen={setOpenTripId} />}
       </main>
+
+      <button type="button" className="ask-fab" onClick={() => setAsking(true)} aria-label="Ask Drape, your stylist assistant">
+        <Sparkles size={20} aria-hidden="true" /> Ask
+      </button>
 
       <nav className="tabbar" aria-label="Main">
         <TabButton label="Today" icon={<Sun size={22} aria-hidden="true" />} active={tab === 'today'} onClick={() => setTab('today')} />
@@ -95,14 +110,28 @@ function SignedIn({ account }: { account: Account }) {
           <Plus size={28} aria-hidden="true" />
         </button>
         <TabButton label="Spectrum" icon={<Palette size={22} aria-hidden="true" />} active={tab === 'spectrum'} onClick={() => setTab('spectrum')} />
+        <TabButton label="Trips" icon={<Luggage size={22} aria-hidden="true" />} active={tab === 'trips'} onClick={() => setTab('trips')} />
       </nav>
 
+      {asking && <AssistantSheet onClose={() => setAsking(false)} onOpenPiece={setOpenId} onPlanTrip={planTrip} />}
+      {tripEditor && (
+        <TripEditor
+          prefill={tripEditor}
+          onClose={() => setTripEditor(null)}
+          onSaved={(id) => {
+            setTripEditor(null)
+            setTab('trips')
+            setOpenTripId(id)
+          }}
+        />
+      )}
+      {openTripId && <TripSheet key={openTripId} id={openTripId} onClose={closeTrip} onOpenPiece={setOpenId} />}
       {adding && <AddSheet onClose={closeAdd} onTypeList={openQuick} />}
       {quickAdding && <QuickAddSheet onClose={closeQuick} />}
-      {/* key: a different piece gets a fresh panel, never the previous piece's edit form */}
-      {openId && <GarmentSheet key={openId} id={openId} onClose={closeGarment} onOpen={setOpenId} />}
       {settingsOpen && <SettingsSheet onClose={closeSettings} onEditProfile={editProfile} />}
       {wizard && <ProfileWizard startAt={wizard.step} defaultName={account.name.split(' ')[0] ?? ''} onClose={closeWizard} />}
+      {/* key: a different piece gets a fresh panel, never the previous piece's edit form; last, so it opens above other panels */}
+      {openId && <GarmentSheet key={openId} id={openId} onClose={closeGarment} onOpen={setOpenId} />}
     </div>
   )
 }
