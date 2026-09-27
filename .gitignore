@@ -26,3 +26,6 @@ dist-ssr
 # local secrets/config
 .env
 .env.local
+
+# local tooling
+.claude/

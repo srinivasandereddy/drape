@@ -20,6 +20,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Stop here if types, lint or tests fail, so a broken version never goes live.
+      - run: npx tsc -b
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/

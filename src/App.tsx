@@ -1,121 +1,74 @@
-import { useState } from 'react'
-import { hasClientId, isSignedIn, listFiles, readJson, signIn, signOut, writeJson, type DriveFile } from './drive'
+import { Palette, Plus, Settings, Shirt, Sun } from 'lucide-react'
+import { useCallback, useState, type ReactNode } from 'react'
+import { InstallBanner } from './components/InstallBanner'
+import { prefs } from './lib/platform'
+import { AddSheet } from './screens/AddSheet'
+import { ClosetScreen } from './screens/ClosetScreen'
+import { GarmentSheet } from './screens/GarmentSheet'
+import { SettingsSheet } from './screens/SettingsSheet'
+import { SpectrumScreen } from './screens/SpectrumScreen'
+import { TodayScreen } from './screens/TodayScreen'
 
-type Log = { ok: boolean; text: string }
+type Tab = 'today' | 'closet' | 'spectrum'
+const TABS: readonly Tab[] = ['today', 'closet', 'spectrum']
 
 export default function App() {
-  const [signed, setSigned] = useState(isSignedIn())
-  const [files, setFiles] = useState<DriveFile[]>([])
-  const [log, setLog] = useState<Log[]>([])
-  const [busy, setBusy] = useState(false)
+  const [tab, setTabState] = useState<Tab>(() => {
+    const saved = prefs.get('tab')
+    return TABS.includes(saved as Tab) ? (saved as Tab) : 'closet'
+  })
+  const [adding, setAdding] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
-  const note = (ok: boolean, text: string) => setLog((l) => [{ ok, text }, ...l].slice(0, 8))
-  const standalone =
-    window.matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
-
-  async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
-    setBusy(true)
-    try {
-      const out = await fn()
-      note(true, `${label}: ok`)
-      return out
-    } catch (e) {
-      note(false, `${label}: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setBusy(false)
-    }
+  const setTab = (t: Tab) => {
+    setTabState(t)
+    prefs.set('tab', t)
+    window.scrollTo({ top: 0 })
   }
-
-  const onSignIn = async () => {
-    await run('Sign in', signIn)
-    setSigned(isSignedIn())
-  }
-  const onWrite = async () => {
-    const f = await run('Write test file', () =>
-      writeJson(`test-${Date.now()}.json`, { hello: 'from Drape', at: new Date().toISOString(), device: navigator.userAgent }),
-    )
-    if (f) setFiles(await listFiles())
-  }
-  const onList = async () => {
-    const f = await run('List files', listFiles)
-    if (f) setFiles(f)
-  }
-  const onRead = async (f: DriveFile) => {
-    const data = await run(`Read ${f.name}`, () => readJson<{ at: string }>(f.id))
-    if (data) note(true, `Contents: ${JSON.stringify(data).slice(0, 120)}`)
-  }
+  const openAdd = useCallback(() => setAdding(true), [])
+  const closeAdd = useCallback(() => setAdding(false), [])
+  const closeGarment = useCallback(() => setOpenId(null), [])
+  const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
   return (
-    <main className="wrap">
-      <header>
-        <p className="eyebrow">Milestone 1 · sign-in test</p>
-        <h1>Drape</h1>
-        <p className="muted">
-          Checks that this phone can sign in with Google and read and write Drape's hidden Drive folder.
-        </p>
+    <div className="app">
+      <header className="topbar">
+        <span className="wordmark">Drape</span>
+        <button type="button" className="icon-btn" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+          <Settings size={22} aria-hidden="true" />
+        </button>
       </header>
 
-      <section className="card">
-        <div className="row">
-          <span>Opened as</span>
-          <b className={standalone ? 'good' : ''}>{standalone ? 'Home-screen app' : 'Browser tab'}</b>
-        </div>
-        <div className="row">
-          <span>Google client ID</span>
-          <b className={hasClientId ? 'good' : 'bad'}>{hasClientId ? 'Set' : 'Missing'}</b>
-        </div>
-        <div className="row">
-          <span>Signed in</span>
-          <b className={signed ? 'good' : ''}>{signed ? 'Yes' : 'No'}</b>
-        </div>
-      </section>
+      <main className="content">
+        <InstallBanner />
+        {tab === 'today' && <TodayScreen onAdd={openAdd} />}
+        {tab === 'closet' && <ClosetScreen onOpen={setOpenId} onAdd={openAdd} />}
+        {tab === 'spectrum' && <SpectrumScreen />}
+      </main>
 
-      <div className="actions">
-        {!signed ? (
-          <button className="primary" disabled={busy || !hasClientId} onClick={onSignIn}>
-            Sign in with Google
-          </button>
-        ) : (
-          <>
-            <button className="primary" disabled={busy} onClick={onWrite}>Write test file to Drive</button>
-            <button disabled={busy} onClick={onList}>List files</button>
-            <button
-              onClick={() => {
-                signOut()
-                setSigned(false)
-                setFiles([])
-              }}
-            >
-              Sign out
-            </button>
-          </>
-        )}
-      </div>
+      <nav className="tabbar" aria-label="Main">
+        <TabButton label="Today" icon={<Sun size={22} aria-hidden="true" />} active={tab === 'today'} onClick={() => setTab('today')} />
+        <TabButton label="Closet" icon={<Shirt size={22} aria-hidden="true" />} active={tab === 'closet'} onClick={() => setTab('closet')} />
+        <button type="button" className="tab-plus" aria-label="Add a piece" onClick={openAdd}>
+          <Plus size={28} aria-hidden="true" />
+        </button>
+        <TabButton label="Spectrum" icon={<Palette size={22} aria-hidden="true" />} active={tab === 'spectrum'} onClick={() => setTab('spectrum')} />
+      </nav>
 
-      {files.length > 0 && (
-        <section className="card">
-          <h2>Files in Drape's Drive folder</h2>
-          <ul className="files">
-            {files.map((f) => (
-              <li key={f.id}>
-                <button className="link" onClick={() => onRead(f)}>{f.name}</button>
-                <span className="muted mono">{new Date(f.modifiedTime).toLocaleTimeString()}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {adding && <AddSheet onClose={closeAdd} />}
+      {/* key: a different piece gets a fresh panel, never the previous piece's edit form */}
+      {openId && <GarmentSheet key={openId} id={openId} onClose={closeGarment} />}
+      {settingsOpen && <SettingsSheet onClose={closeSettings} />}
+    </div>
+  )
+}
 
-      {log.length > 0 && (
-        <section className="card">
-          <h2>Log</h2>
-          <ul className="log">
-            {log.map((l, i) => (
-              <li key={i} className={l.ok ? 'good' : 'bad'}>{l.text}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </main>
+function TabButton(props: { label: string; icon: ReactNode; active: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className={props.active ? 'tab on' : 'tab'} aria-current={props.active ? 'page' : undefined} onClick={props.onClick}>
+      {props.icon}
+      <span>{props.label}</span>
+    </button>
   )
 }

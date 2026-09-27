@@ -1,32 +1,36 @@
-# React + TypeScript + Vite
+# Drape
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A private wardrobe app for our own phones. Photograph your clothes, see their colors, get daily outfit ideas.
+Installs from the browser (no App Store), stores everything on the phone and in a hidden folder in your own Google Drive.
 
-Currently, two official plugins are available:
+Live: https://srinivasandereddy.github.io/drape/
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run it on the laptop
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Then open http://localhost:5173. Google sign-in needs `VITE_GOOGLE_CLIENT_ID` in `.env.local` (see `.env.example`).
+
+## Checks
+
+`npm run check` runs the type checker, the linter and the tests. GitHub runs the same checks before every deploy.
+
+## Where things live
+
+| Folder | What it holds |
+|---|---|
+| `src/lib/` | Data rules and storage: garment model, catalog of categories, phone database, photo processing, Google Drive |
+| `src/components/` | Shared UI pieces: panels, chips, toasts, error screen |
+| `src/screens/` | The screens: Today, Closet, Spectrum, Add, piece details, Settings |
+
+## Milestones
+
+1. Google sign-in test on real phones — done
+2. Closet: add photos, categories, grid, edit, delete — done
+3. Colors and Spectrum
+4. Today's outfit (weather, occasion, profession)
+5. Google Drive sync across phones
+6. Feedback loop, style tags, modesty, dosha, onboarding quiz
