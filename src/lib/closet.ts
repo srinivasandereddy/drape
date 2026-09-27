@@ -1,22 +1,36 @@
-// The closet store: the only module that reads or writes garments.
+// The closet store: the only module that reads or writes garments and worn outfits.
 // Screens subscribe with `useCloset()` and re-render when anything changes.
 
 import { useEffect, useSyncExternalStore } from 'react'
-import { getDb, requestPersistentStorage, type StoredPhoto } from './db'
+import { extractColorsFromBlob } from './color'
+import { getDb, requestPersistentStorage, type OutfitRecord, type StoredPhoto } from './db'
+import { newId } from './id'
 import type { ProcessedPhoto } from './image'
-import { applyDraft, createGarment, markDeleted, markWorn, normalizeGarment, type Garment, type GarmentDraft } from './model'
+import {
+  applyDraft,
+  createGarment,
+  markDeleted,
+  markWorn,
+  normalizeGarment,
+  type Garment,
+  type GarmentColor,
+  type GarmentDraft,
+} from './model'
 
-export type ClosetState =
-  | { status: 'loading'; garments: Garment[] }
-  | { status: 'ready'; garments: Garment[] }
-  | { status: 'error'; garments: Garment[]; message: string }
+export interface ClosetState {
+  status: 'loading' | 'ready' | 'error'
+  garments: Garment[]
+  message: string | null
+  /** Progress while colors are being read from older photos. */
+  scan: { done: number; total: number } | null
+}
 
-let state: ClosetState = { status: 'loading', garments: [] }
+let state: ClosetState = { status: 'loading', garments: [], message: null, scan: null }
 let loadStarted = false
 const listeners = new Set<() => void>()
 
-function setState(next: ClosetState) {
-  state = next
+function setState(patch: Partial<ClosetState>) {
+  state = { ...state, ...patch }
   for (const l of listeners) l()
 }
 
@@ -35,9 +49,9 @@ export async function reload(): Promise<void> {
       .map(normalizeGarment)
       .filter((g): g is Garment => g !== null && g.deletedAt === null)
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
-    setState({ status: 'ready', garments })
+    setState({ status: 'ready', garments, message: null })
   } catch (e) {
-    setState({ status: 'error', garments: state.garments, message: errorMessage(e) })
+    setState({ status: 'error', message: errorMessage(e) })
   }
 }
 
@@ -52,7 +66,7 @@ export function useCloset(): ClosetState {
   useEffect(() => {
     if (!loadStarted) {
       loadStarted = true
-      void reload()
+      void reload().then(scanMissingColors)
     }
   }, [])
   return snapshot
@@ -102,6 +116,40 @@ export function wearGarment(id: string): Promise<Garment> {
   return write(() => updateStored(id, (g) => markWorn(g)))
 }
 
+const localDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+/** Marks every piece as worn today and keeps a record of the outfit. */
+export function wearOutfit(garmentIds: string[], occasion: string): Promise<OutfitRecord> {
+  return write(async () => {
+    const now = new Date()
+    const db = await getDb()
+    const tx = db.transaction(['garments', 'outfits'], 'readwrite')
+    const garments = tx.objectStore('garments')
+    const worn: string[] = []
+    for (const id of new Set(garmentIds)) {
+      const g = normalizeGarment(await garments.get(id))
+      if (!g || g.deletedAt) continue
+      await garments.put(markWorn(g, now))
+      worn.push(id)
+    }
+    const record: OutfitRecord = { id: newId(now.getTime()), date: localDate(now), garmentIds: worn, occasion, createdAt: now.toISOString(), deletedAt: null }
+    await tx.objectStore('outfits').put(record)
+    await tx.done
+    return record
+  })
+}
+
+export async function todaysOutfit(): Promise<OutfitRecord | null> {
+  try {
+    const db = await getDb()
+    const list = await db.getAllFromIndex('outfits', 'by-date', localDate(new Date()))
+    return list.filter((o) => !o.deletedAt).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0] ?? null
+  } catch {
+    return null
+  }
+}
+
 /** Keeps a "deleted" marker for sync, and frees the photo space right away. */
 export function deleteGarment(id: string): Promise<void> {
   return write(async () => {
@@ -119,11 +167,44 @@ export async function getPhoto(id: string): Promise<StoredPhoto | undefined> {
   return db.get('photos', id)
 }
 
-/** Removes every garment and photo from this phone. Drive is not touched. */
+/** Removes every garment, photo and outfit from this phone. Drive is not touched. */
 export function wipeLocalData(): Promise<void> {
   return write(async () => {
     const db = await getDb()
-    const tx = db.transaction(['garments', 'photos'], 'readwrite')
-    await Promise.all([tx.objectStore('garments').clear(), tx.objectStore('photos').clear(), tx.done])
+    const tx = db.transaction(['garments', 'photos', 'outfits'], 'readwrite')
+    await Promise.all([tx.objectStore('garments').clear(), tx.objectStore('photos').clear(), tx.objectStore('outfits').clear(), tx.done])
   })
+}
+
+// ---------- reading colors for pieces added before color support ----------
+
+let scanning = false
+
+/** Reads colors, one photo at a time, for pieces that have none yet. Safe to call repeatedly. */
+export async function scanMissingColors(): Promise<void> {
+  if (scanning) return
+  const todo = state.garments.filter((g) => g.colors.length === 0 && !g.colorsEdited && g.photo)
+  if (todo.length === 0) return
+  scanning = true
+  setState({ scan: { done: 0, total: todo.length } })
+  try {
+    for (const [i, g] of todo.entries()) {
+      try {
+        const photo = await getPhoto(g.id)
+        const colors: GarmentColor[] = photo ? await extractColorsFromBlob(photo.thumb) : []
+        if (colors.length) {
+          await updateStored(g.id, (cur) =>
+            cur.colors.length || cur.colorsEdited ? cur : { ...cur, colors, updatedAt: new Date().toISOString() },
+          )
+          await reload()
+        }
+      } catch {
+        // One unreadable photo should not stop the rest.
+      }
+      setState({ scan: { done: i + 1, total: todo.length } })
+    }
+  } finally {
+    scanning = false
+    setState({ scan: null })
+  }
 }

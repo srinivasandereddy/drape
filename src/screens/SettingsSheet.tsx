@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
+import { ChoiceChips } from '../components/Chips'
+import { CitySearch } from '../components/CitySearch'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
 import { useCloset, wipeLocalData } from '../lib/closet'
 import { storageEstimate } from '../lib/db'
 import { hasClientId, isSignedIn, listFiles, signIn, signOut, writeJson } from '../lib/drive'
 import { APP_VERSION, isStandalone } from '../lib/platform'
+import { ROUTINES, saveProfile, useProfile, type RoutineId } from '../lib/profile'
+import { cityLabel } from '../lib/weather'
 
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const toast = useToast()
@@ -15,6 +19,8 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const [driveFiles, setDriveFiles] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmWipe, setConfirmWipe] = useState(false)
+  const { profile } = useProfile()
+  const [changingCity, setChangingCity] = useState(false)
 
   useEffect(() => {
     void storageEstimate().then(setStorage)
@@ -39,6 +45,38 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet title="Settings" onClose={onClose}>
       <div className="stack">
+        <section className="card stack" aria-labelledby="s-you">
+          <h2 id="s-you">Your details</h2>
+          {profile.city && !changingCity ? (
+            <div className="kv">
+              <span>City</span>
+              <button type="button" className="link" onClick={() => setChangingCity(true)}>
+                {cityLabel(profile.city)} · Change
+              </button>
+            </div>
+          ) : (
+            <CitySearch
+              onSelect={(city) =>
+                void run('City', async () => {
+                  await saveProfile({ city })
+                  setChangingCity(false)
+                  toast('City saved')
+                })
+              }
+            />
+          )}
+          <ChoiceChips<RoutineId>
+            label="Normal weekday"
+            options={ROUTINES.map((r) => ({ value: r.id, label: r.label }))}
+            value={profile.routine}
+            onChange={(routine) => routine && void run('Routine', () => saveProfile({ routine }))}
+          />
+          <p className="muted small">
+            Weather comes from Open-Meteo, a free service. Only your city's map position is sent, never your name, photos or
+            closet.
+          </p>
+        </section>
+
         <section className="card stack-sm" aria-labelledby="s-phone">
           <h2 id="s-phone">This phone</h2>
           <div className="kv">

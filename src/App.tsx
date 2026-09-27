@@ -46,7 +46,7 @@ export default function App() {
         <InstallBanner />
         {tab === 'today' && <TodayScreen onAdd={openAdd} />}
         {tab === 'closet' && <ClosetScreen onOpen={setOpenId} onAdd={openAdd} />}
-        {tab === 'spectrum' && <SpectrumScreen />}
+        {tab === 'spectrum' && <SpectrumScreen onOpen={setOpenId} />}
       </main>
 
       <nav className="tabbar" aria-label="Main">
@@ -60,7 +60,7 @@ export default function App() {
 
       {adding && <AddSheet onClose={closeAdd} />}
       {/* key: a different piece gets a fresh panel, never the previous piece's edit form */}
-      {openId && <GarmentSheet key={openId} id={openId} onClose={closeGarment} />}
+      {openId && <GarmentSheet key={openId} id={openId} onClose={closeGarment} onOpen={setOpenId} />}
       {settingsOpen && <SettingsSheet onClose={closeSettings} />}
     </div>
   )

@@ -17,7 +17,8 @@ import {
 } from './catalog'
 import { ID_PATTERN, newId } from './id'
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
+export const MAX_COLORS = 3
 export const NAME_MAX = 60
 
 /** A dominant color read from the photo. Filled in by milestone 3. */
@@ -34,6 +35,8 @@ export interface Garment {
   subtype: string
   name: string
   colors: GarmentColor[]
+  /** True once the person corrected the colors by hand; automatic reading then leaves them alone. */
+  colorsEdited: boolean
   pattern: Pattern | null
   formality: Formality
   warmth: Warmth | null
@@ -56,6 +59,8 @@ export interface GarmentDraft {
   category: CategoryId | null
   subtype: string
   name: string
+  colors: GarmentColor[]
+  colorsEdited: boolean
   pattern: Pattern | null
   formality: Formality
   warmth: Warmth | null
@@ -64,7 +69,7 @@ export interface GarmentDraft {
 }
 
 export function emptyDraft(): GarmentDraft {
-  return { category: null, subtype: '', name: '', pattern: null, formality: 2, warmth: null, seasons: [], metal: null }
+  return { category: null, subtype: '', name: '', colors: [], colorsEdited: false, pattern: null, formality: 2, warmth: null, seasons: [], metal: null }
 }
 
 export function draftFromGarment(g: Garment): GarmentDraft {
@@ -72,6 +77,8 @@ export function draftFromGarment(g: Garment): GarmentDraft {
     category: g.category,
     subtype: g.subtype,
     name: g.name,
+    colors: g.colors.map((c) => ({ ...c })),
+    colorsEdited: g.colorsEdited,
     pattern: g.pattern,
     formality: g.formality,
     warmth: g.warmth,
@@ -81,7 +88,8 @@ export function draftFromGarment(g: Garment): GarmentDraft {
 }
 
 /** Clears attributes that do not apply to the chosen category (e.g. metal on a shirt). */
-export function sanitizeDraft(d: GarmentDraft): GarmentDraft {
+export function sanitizeDraft(draft: GarmentDraft): GarmentDraft {
+  const d = { ...draft, colors: cleanColors(draft.colors) }
   if (!d.category) return { ...d, name: d.name.slice(0, NAME_MAX) }
   const def = categoryDef(d.category)
   return {
@@ -118,7 +126,8 @@ export function createGarment(
     category: d.category,
     subtype: d.subtype,
     name: d.name.trim(),
-    colors: [],
+    colors: d.colors,
+    colorsEdited: d.colorsEdited,
     pattern: d.pattern,
     formality: d.formality,
     warmth: d.warmth,
@@ -142,6 +151,8 @@ export function applyDraft(g: Garment, draft: GarmentDraft, now: Date = new Date
     category: d.category,
     subtype: d.subtype,
     name: d.name.trim(),
+    colors: d.colors,
+    colorsEdited: d.colorsEdited,
     pattern: d.pattern,
     formality: d.formality,
     warmth: d.warmth,
@@ -178,6 +189,21 @@ const inSet = <T extends string>(v: unknown, labels: Record<T, string>): T | nul
 const intIn = <T extends number>(v: unknown, min: number, max: number): T | null =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? (v as T) : null
 
+/** Valid hex colors only, shares 0..1, at most MAX_COLORS, biggest first. */
+export function cleanColors(v: unknown): GarmentColor[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter(isObj)
+    .map((c) => ({ hex: str(c.hex).toUpperCase(), share: typeof c.share === 'number' && Number.isFinite(c.share) ? c.share : 0 }))
+    .filter((c) => HEX.test(c.hex) && c.share >= 0 && c.share <= 1)
+    .filter((c, i, all) => all.findIndex((o) => o.hex === c.hex) === i)
+    .sort((a, b) => b.share - a.share)
+    .slice(0, MAX_COLORS)
+}
+
+/** The main color of a garment, if known. */
+export const dominantHex = (g: Pick<Garment, 'colors'>): string | null => g.colors[0]?.hex ?? null
+
 function uniqueSeasons(v: unknown): Season[] {
   if (!Array.isArray(v)) return []
   const out: Season[] = []
@@ -201,13 +227,7 @@ export function normalizeGarment(raw: unknown): Garment | null {
   const createdAt = isoOrNull(raw.createdAt)
   if (!createdAt) return null
 
-  const colors = Array.isArray(raw.colors)
-    ? raw.colors
-        .filter(isObj)
-        .map((c) => ({ hex: str(c.hex).toUpperCase(), share: typeof c.share === 'number' ? c.share : 0 }))
-        .filter((c) => HEX.test(c.hex) && c.share >= 0 && c.share <= 1)
-        .slice(0, 5)
-    : []
+  const colors = cleanColors(raw.colors)
 
   const photo =
     isObj(raw.photo) && typeof raw.photo.width === 'number' && typeof raw.photo.height === 'number'
@@ -221,6 +241,7 @@ export function normalizeGarment(raw: unknown): Garment | null {
     subtype: str(raw.subtype),
     name: str(raw.name).slice(0, NAME_MAX),
     colors,
+    colorsEdited: raw.colorsEdited === true,
     pattern: inSet<Pattern>(raw.pattern, PATTERN_LABELS),
     formality: intIn<Formality>(raw.formality, 1, 4) ?? 2,
     warmth: intIn<Warmth>(raw.warmth, 1, 3),

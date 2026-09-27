@@ -8,7 +8,7 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { Garment } from './model'
 
 export const DB_NAME = 'drape'
-export const DB_VERSION = 1
+export const DB_VERSION = 2
 
 export interface StoredPhoto {
   id: string
@@ -16,9 +16,29 @@ export interface StoredPhoto {
   thumb: Blob
 }
 
+/** Small named records such as the profile. */
+export interface MetaRecord {
+  key: string
+  value: unknown
+  updatedAt: string
+}
+
+/** One outfit someone actually wore. Kept for history, freshness and later sync. */
+export interface OutfitRecord {
+  id: string
+  /** Local date, YYYY-MM-DD */
+  date: string
+  garmentIds: string[]
+  occasion: string
+  createdAt: string
+  deletedAt: string | null
+}
+
 interface DrapeDB extends DBSchema {
   garments: { key: string; value: Garment; indexes: { 'by-updated': string } }
   photos: { key: string; value: StoredPhoto }
+  meta: { key: string; value: MetaRecord }
+  outfits: { key: string; value: OutfitRecord; indexes: { 'by-date': string } }
 }
 
 export type DrapeDatabase = IDBPDatabase<DrapeDB>
@@ -35,6 +55,11 @@ export function getDb(): Promise<DrapeDatabase> {
         const garments = db.createObjectStore('garments', { keyPath: 'id' })
         garments.createIndex('by-updated', 'updatedAt')
         db.createObjectStore('photos', { keyPath: 'id' })
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore('meta', { keyPath: 'key' })
+        const outfits = db.createObjectStore('outfits', { keyPath: 'id' })
+        outfits.createIndex('by-date', 'date')
       }
     },
     blocking() {

@@ -17,6 +17,7 @@ import {
 import { NAME_MAX, sanitizeDraft, type GarmentDraft } from '../lib/model'
 import { optionsFrom } from '../lib/options'
 import { ChoiceChips, MultiChips } from './Chips'
+import { ColorsField } from './ColorSwatches'
 
 const CATEGORY_OPTIONS = CATEGORIES.map((c) => ({ value: c.id, label: c.label }))
 const FORMALITY_OPTIONS = optionsFrom<Formality>(FORMALITY_LABELS, true)
@@ -25,9 +26,9 @@ const PATTERN_OPTIONS = optionsFrom<Pattern>(PATTERN_LABELS)
 const SEASON_OPTIONS = optionsFrom<Season>(SEASON_LABELS)
 const METAL_OPTIONS = optionsFrom<Metal>(METAL_LABELS)
 
-type Props = { draft: GarmentDraft; onChange: (d: GarmentDraft) => void }
+type Props = { draft: GarmentDraft; onChange: (d: GarmentDraft) => void; colorStatus?: string | null }
 
-export function GarmentForm({ draft, onChange }: Props) {
+export function GarmentForm({ draft, onChange, colorStatus }: Props) {
   const nameId = useId()
   const set = (patch: Partial<GarmentDraft>) => onChange(sanitizeDraft({ ...draft, ...patch }))
   const def = draft.category ? categoryDef(draft.category) : null
@@ -40,6 +41,8 @@ export function GarmentForm({ draft, onChange }: Props) {
         value={draft.category}
         onChange={(category) => category && set({ category })}
       />
+
+      <ColorsField colors={draft.colors} status={colorStatus} onChange={(colors) => set({ colors, colorsEdited: true })} />
 
       {def && (
         <>

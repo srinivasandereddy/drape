@@ -1,5 +1,6 @@
 import { CalendarCheck, Pencil, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ColorSwatches } from '../components/ColorSwatches'
 import { GarmentForm } from '../components/GarmentForm'
 import { GarmentPhoto } from '../components/GarmentPhoto'
 import { Sheet } from '../components/Sheet'
@@ -7,13 +8,16 @@ import { useToast } from '../components/toastContext'
 import { FORMALITY_LABELS, METAL_LABELS, PATTERN_LABELS, SEASON_LABELS, WARMTH_LABELS, categoryDef } from '../lib/catalog'
 import { deleteGarment, editGarment, useCloset, wearGarment } from '../lib/closet'
 import { displayName, draftFromGarment, validateDraft, type Garment, type GarmentDraft } from '../lib/model'
+import { pieceLabel } from '../lib/outfit'
+import { matchesFor } from '../lib/spectrum'
 
 const dateFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 const isToday = (iso: string | null) => !!iso && new Date(iso).toDateString() === new Date().toDateString()
 
-function details(g: Garment): [string, string][] {
-  const rows: [string, string][] = [
+function details(g: Garment): [string, ReactNode][] {
+  const rows: [string, ReactNode][] = [
     ['Kind', [categoryDef(g.category).label, g.subtype].filter(Boolean).join(' · ')],
+    ['Colors', <ColorSwatches key="c" colors={g.colors} />],
     ['Dressiness', FORMALITY_LABELS[g.formality]],
   ]
   if (g.warmth) rows.push(['Warmth', WARMTH_LABELS[g.warmth]])
@@ -25,10 +29,11 @@ function details(g: Garment): [string, string][] {
   return rows
 }
 
-export function GarmentSheet({ id, onClose }: { id: string; onClose: () => void }) {
+export function GarmentSheet({ id, onClose, onOpen }: { id: string; onClose: () => void; onOpen: (id: string) => void }) {
   const toast = useToast()
   const { garments, status } = useCloset()
   const garment = garments.find((g) => g.id === id)
+  const matches = useMemo(() => (garment ? matchesFor(garment, garments).slice(0, 8) : []), [garment, garments])
 
   const [editing, setEditing] = useState<GarmentDraft | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -115,6 +120,21 @@ export function GarmentSheet({ id, onClose }: { id: string; onClose: () => void 
             </div>
           ))}
         </dl>
+
+        {matches.length > 0 && (
+          <div className="stack-sm">
+            <h3>Goes well with</h3>
+            <ul className="thumb-row">
+              {matches.map((m) => (
+                <li key={m.garment.id}>
+                  <button type="button" className="thumb" onClick={() => onOpen(m.garment.id)} aria-label={pieceLabel(m.garment)}>
+                    <GarmentPhoto id={m.garment.id} kind="thumb" alt="" className="thumb-img" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {!confirmDelete ? (
           <button type="button" className="btn danger-ghost" onClick={() => setConfirmDelete(true)}>
