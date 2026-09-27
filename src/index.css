@@ -1,0 +1,70 @@
+:root {
+  --paper: #f7f7f4;
+  --card: #ffffff;
+  --ink: #17191c;
+  --mute: #6b7075;
+  --line: #e4e5e1;
+  --accent: #2a45f5;
+  --good: #17603b;
+  --bad: #b3261e;
+  --display: 'Bricolage Grotesque', 'DM Sans', system-ui, sans-serif;
+  --body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --mono: 'DM Mono', ui-monospace, Menlo, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #111315;
+    --card: #1a1d20;
+    --ink: #eceeef;
+    --mute: #9aa0a6;
+    --line: #2c3034;
+    --accent: #8c9aff;
+    --good: #5ccb92;
+    --bad: #ff8a80;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 16px/1.5 var(--body);
+  -webkit-text-size-adjust: 100%;
+}
+.wrap {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: max(24px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+h1 { font: 700 40px/1.1 var(--display); letter-spacing: -0.02em; margin: 4px 0 8px; }
+h2 { font: 700 17px/1.2 var(--display); margin: 0 0 8px; }
+p { margin: 0; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--mute); }
+.muted { color: var(--mute); }
+.mono { font-family: var(--mono); font-size: 13px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.row { display: flex; justify-content: space-between; padding: 6px 0; }
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+.actions { display: flex; flex-direction: column; gap: 10px; }
+button {
+  font: 700 16px var(--body);
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (prefers-color-scheme: dark) { button.primary { color: #0e1030; } }
+button:disabled { opacity: 0.5; }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button.link { min-height: 0; border: 0; background: none; padding: 0; color: var(--accent); text-align: left; font-weight: 500; }
+ul { margin: 0; padding: 0; list-style: none; }
+.files li, .log li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; overflow-wrap: anywhere; }
+.files li:first-child, .log li:first-child { border-top: 0; }
