@@ -4,20 +4,25 @@
 
 import {
   CATEGORY_IDS,
+  FABRIC_LABELS,
   METAL_LABELS,
   PATTERN_LABELS,
   SEASON_LABELS,
   categoryDef,
+  defaultCoverage,
   type CategoryId,
+  type Coverage,
+  type Fabric,
   type Formality,
   type Metal,
   type Pattern,
   type Season,
   type Warmth,
 } from './catalog'
+import { STYLE_IDS, type StyleId } from './styles'
 import { ID_PATTERN, newId } from './id'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 export const MAX_COLORS = 3
 export const NAME_MAX = 60
 
@@ -43,8 +48,13 @@ export interface Garment {
   /** Empty means "all year". */
   seasons: Season[]
   metal: Metal | null
-  /** Style aesthetics such as "old-money" or "streetwear". Used from milestone 6. */
-  styleTags: string[]
+  fabric: Fabric | null
+  /** How much of the body it covers, 1 revealing … 5 full; compared with the modesty setting. */
+  coverage: Coverage
+  /** Style aesthetics chosen by the person, e.g. "old-money". Drape also guesses styles on its own. */
+  styleTags: StyleId[]
+  /** How the piece was added. Sample pieces can be removed in one go. */
+  source: GarmentSource
   wornCount: number
   lastWornAt: string | null
   photo: { width: number; height: number } | null
@@ -53,6 +63,8 @@ export interface Garment {
   /** Set instead of removing the record, so other phones learn about the delete. */
   deletedAt: string | null
 }
+
+export type GarmentSource = 'photo' | 'text' | 'sample'
 
 /** The fields a person fills in on the Add / Edit form. */
 export interface GarmentDraft {
@@ -66,10 +78,28 @@ export interface GarmentDraft {
   warmth: Warmth | null
   seasons: Season[]
   metal: Metal | null
+  fabric: Fabric | null
+  /** null = work it out from the type */
+  coverage: Coverage | null
+  styleTags: StyleId[]
 }
 
 export function emptyDraft(): GarmentDraft {
-  return { category: null, subtype: '', name: '', colors: [], colorsEdited: false, pattern: null, formality: 2, warmth: null, seasons: [], metal: null }
+  return {
+    category: null,
+    subtype: '',
+    name: '',
+    colors: [],
+    colorsEdited: false,
+    pattern: null,
+    formality: 2,
+    warmth: null,
+    seasons: [],
+    metal: null,
+    fabric: null,
+    coverage: null,
+    styleTags: [],
+  }
 }
 
 export function draftFromGarment(g: Garment): GarmentDraft {
@@ -84,6 +114,9 @@ export function draftFromGarment(g: Garment): GarmentDraft {
     warmth: g.warmth,
     seasons: [...g.seasons],
     metal: g.metal,
+    fabric: g.fabric,
+    coverage: g.coverage,
+    styleTags: [...g.styleTags],
   }
 }
 
@@ -100,6 +133,7 @@ export function sanitizeDraft(draft: GarmentDraft): GarmentDraft {
     warmth: def.has.warmth ? d.warmth : null,
     metal: def.has.metal ? d.metal : null,
     seasons: uniqueSeasons(d.seasons),
+    styleTags: cleanStyles(d.styleTags),
   }
 }
 
@@ -116,6 +150,7 @@ export function createGarment(
   photo: { width: number; height: number } | null,
   now: Date = new Date(),
   id: string = newId(now.getTime()),
+  source: GarmentSource = photo ? 'photo' : 'text',
 ): Garment {
   const d = sanitizeDraft(draft)
   if (!d.category) throw new Error('A garment needs a category')
@@ -133,7 +168,10 @@ export function createGarment(
     warmth: d.warmth,
     seasons: d.seasons,
     metal: d.metal,
-    styleTags: [],
+    fabric: d.fabric,
+    coverage: d.coverage ?? defaultCoverage(d.category, d.subtype),
+    styleTags: d.styleTags,
+    source,
     wornCount: 0,
     lastWornAt: null,
     photo,
@@ -158,6 +196,9 @@ export function applyDraft(g: Garment, draft: GarmentDraft, now: Date = new Date
     warmth: d.warmth,
     seasons: d.seasons,
     metal: d.metal,
+    fabric: d.fabric,
+    coverage: d.coverage ?? defaultCoverage(d.category, d.subtype),
+    styleTags: d.styleTags,
     updatedAt: now.toISOString(),
   }
 }
@@ -188,6 +229,11 @@ const inSet = <T extends string>(v: unknown, labels: Record<T, string>): T | nul
   typeof v === 'string' && Object.hasOwn(labels, v) ? (v as T) : null
 const intIn = <T extends number>(v: unknown, min: number, max: number): T | null =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? (v as T) : null
+
+function cleanStyles(v: unknown): StyleId[] {
+  if (!Array.isArray(v)) return []
+  return [...new Set(v.filter((t): t is StyleId => STYLE_IDS.includes(t as StyleId)))]
+}
 
 /** Valid hex colors only, shares 0..1, at most MAX_COLORS, biggest first. */
 export function cleanColors(v: unknown): GarmentColor[] {
@@ -247,7 +293,10 @@ export function normalizeGarment(raw: unknown): Garment | null {
     warmth: intIn<Warmth>(raw.warmth, 1, 3),
     seasons: uniqueSeasons(raw.seasons),
     metal: inSet<Metal>(raw.metal, METAL_LABELS),
-    styleTags: Array.isArray(raw.styleTags) ? raw.styleTags.filter((t): t is string => typeof t === 'string').slice(0, 20) : [],
+    fabric: inSet<Fabric>(raw.fabric, FABRIC_LABELS),
+    coverage: intIn<Coverage>(raw.coverage, 1, 5) ?? defaultCoverage(category, str(raw.subtype)),
+    styleTags: cleanStyles(raw.styleTags),
+    source: raw.source === 'text' || raw.source === 'sample' || raw.source === 'photo' ? raw.source : photo ? 'photo' : 'text',
     wornCount: intIn<number>(raw.wornCount, 0, 1_000_000) ?? 0,
     lastWornAt: isoOrNull(raw.lastWornAt),
     photo,

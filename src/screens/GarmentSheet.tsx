@@ -1,12 +1,15 @@
-import { CalendarCheck, Pencil, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Camera, CalendarCheck, Pencil, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { ColorSwatches } from '../components/ColorSwatches'
 import { GarmentForm } from '../components/GarmentForm'
-import { GarmentPhoto } from '../components/GarmentPhoto'
+import { PieceImage } from '../components/PieceImage'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
-import { FORMALITY_LABELS, METAL_LABELS, PATTERN_LABELS, SEASON_LABELS, WARMTH_LABELS, categoryDef } from '../lib/catalog'
-import { deleteGarment, editGarment, useCloset, wearGarment } from '../lib/closet'
+import { COVERAGE_LABELS, FABRIC_LABELS, FORMALITY_LABELS, METAL_LABELS, PATTERN_LABELS, SEASON_LABELS, WARMTH_LABELS, categoryDef } from '../lib/catalog'
+import { deleteGarment, editGarment, setGarmentPhoto, useCloset, wearGarment } from '../lib/closet'
+import { extractColorsFromBlob } from '../lib/color'
+import { PhotoError, processPhoto } from '../lib/image'
+import { styleDef } from '../lib/styles'
 import { displayName, draftFromGarment, validateDraft, type Garment, type GarmentDraft } from '../lib/model'
 import { pieceLabel } from '../lib/outfit'
 import { matchesFor } from '../lib/spectrum'
@@ -23,6 +26,10 @@ function details(g: Garment): [string, ReactNode][] {
   if (g.warmth) rows.push(['Warmth', WARMTH_LABELS[g.warmth]])
   if (g.pattern) rows.push(['Pattern', PATTERN_LABELS[g.pattern]])
   if (g.metal) rows.push(['Metal', METAL_LABELS[g.metal]])
+  if (g.fabric) rows.push(['Fabric', FABRIC_LABELS[g.fabric]])
+  if (categoryDef(g.category).has.warmth && g.category !== 'footwear') rows.push(['Coverage', COVERAGE_LABELS[g.coverage]])
+  if (g.styleTags.length) rows.push(['Style', g.styleTags.map((s) => styleDef(s).label).join(', ')])
+  if (g.source === 'sample') rows.push(['Added as', 'Sample piece'])
   rows.push(['Seasons', g.seasons.length ? g.seasons.map((s) => SEASON_LABELS[s]).join(', ') : 'All year'])
   rows.push(['Worn', g.wornCount === 0 ? 'Not yet' : `${g.wornCount} time${g.wornCount === 1 ? '' : 's'}, last ${dateFmt.format(new Date(g.lastWornAt!))}`])
   rows.push(['Added', dateFmt.format(new Date(g.createdAt))])
@@ -38,6 +45,7 @@ export function GarmentSheet({ id, onClose, onOpen }: { id: string; onClose: () 
   const [editing, setEditing] = useState<GarmentDraft | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
+  const photoInput = useRef<HTMLInputElement>(null)
 
   // If the piece disappears (deleted, or wiped from Settings), close this panel.
   useEffect(() => {
@@ -90,13 +98,34 @@ export function GarmentSheet({ id, onClose, onOpen }: { id: string; onClose: () 
 
   const woreToday = isToday(garment.lastWornAt)
 
+  async function addPhoto(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !garment) return
+    await run(async () => {
+      try {
+        const photo = await processPhoto(file)
+        const colors = await extractColorsFromBlob(photo.thumb).catch(() => [])
+        await setGarmentPhoto(garment.id, photo, colors)
+      } catch (err) {
+        throw err instanceof PhotoError ? err : new Error('Could not read that photo. Try another one.')
+      }
+    }, 'Photo added')
+  }
+
   return (
     // Separate keys so each mode registers its own Back-gesture entry.
     <Sheet key="view" title={name} onClose={onClose}>
       <div className="stack">
         <div className="detail-photo">
-          <GarmentPhoto id={garment.id} kind="full" alt={name} />
+          <PieceImage garment={garment} kind="full" alt={name} />
         </div>
+        <input ref={photoInput} type="file" accept="image/*" hidden onChange={(e) => void addPhoto(e)} />
+        {!garment.photo && (
+          <button type="button" className="btn" disabled={busy} onClick={() => photoInput.current?.click()}>
+            <Camera size={18} aria-hidden="true" /> Add a photo of this piece
+          </button>
+        )}
 
         <div className="row-actions">
           <button
@@ -128,7 +157,7 @@ export function GarmentSheet({ id, onClose, onOpen }: { id: string; onClose: () 
               {matches.map((m) => (
                 <li key={m.garment.id}>
                   <button type="button" className="thumb" onClick={() => onOpen(m.garment.id)} aria-label={pieceLabel(m.garment)}>
-                    <GarmentPhoto id={m.garment.id} kind="thumb" alt="" className="thumb-img" />
+                    <PieceImage garment={m.garment} kind="thumb" className="thumb-img" />
                   </button>
                 </li>
               ))}

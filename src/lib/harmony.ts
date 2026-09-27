@@ -33,7 +33,11 @@ function hueFamilies(hues: number[]): number[] {
   return families
 }
 
-const joinNames = (names: string[]) => [...new Set(names)].join(' and ')
+/** "Cream, beige and brown": first word capitalised, the rest lower case. */
+const joinNames = (names: string[]) => {
+  const u = [...new Set(names)].map((n, i) => (i === 0 ? n : n.toLowerCase()))
+  return u.length <= 1 ? (u[0] ?? '') : `${u.slice(0, -1).join(', ')} and ${u[u.length - 1]}`
+}
 
 /**
  * @param colors the dominant color (hex) of each visible piece

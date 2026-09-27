@@ -1,10 +1,10 @@
+import type { MouseEvent } from 'react'
 import { hexToLab, hueOf, isNeutral } from '../lib/color'
 import { dominantHex, type Garment } from '../lib/model'
-import { harmonyAngles } from '../lib/spectrum'
 
 const SIZE = 320
 const C = SIZE / 2
-const RING_IN = 132
+const RING_IN = 128
 const RING_OUT = 152
 const SEGMENTS = 36
 
@@ -24,45 +24,60 @@ function arc(a0: number, a1: number, r0: number, r1: number): string {
 }
 
 /** Darker colors sit nearer the middle, lighter ones nearer the ring. */
-const radiusFor = (hex: string) => 44 + (Math.min(100, Math.max(0, hexToLab(hex)[0])) / 100) * 80
+const radiusFor = (hex: string) => 44 + (Math.min(100, Math.max(0, hexToLab(hex)[0])) / 100) * 76
 
-type Props = { garments: Garment[]; selectedId: string | null; onSelect: (id: string) => void }
+type Props = {
+  garments: Garment[]
+  selectedId: string | null
+  onSelect: (id: string) => void
+  /** The base hue, drawn as a solid line. */
+  baseHue: number | null
+  /** Hues that complete the chosen harmony, drawn as markers on the ring. */
+  markers: number[]
+  /** Tapping the ring picks a hue. */
+  onPickHue?: (hue: number) => void
+}
 
-export function ColorWheel({ garments, selectedId, onSelect }: Props) {
+export function ColorWheel({ garments, selectedId, onSelect, baseHue, markers, onPickHue }: Props) {
   const colored = garments.filter((g) => dominantHex(g))
   const chromatic = colored.filter((g) => !isNeutral(dominantHex(g)!))
   const neutrals = colored.filter((g) => isNeutral(dominantHex(g)!))
-  const selected = colored.find((g) => g.id === selectedId) ?? null
-  const selHex = selected ? dominantHex(selected)! : null
-  const selHue = selHex && !isNeutral(selHex) ? hueOf(selHex) : null
-  const marks = selHue !== null ? harmonyAngles(selHue) : null
+
+  const pickHue = (e: MouseEvent<SVGGElement>) => {
+    if (!onPickHue) return
+    const box = e.currentTarget.ownerSVGElement!.getBoundingClientRect()
+    const x = ((e.clientX - box.left) / box.width) * SIZE - C
+    const y = ((e.clientY - box.top) / box.height) * SIZE - C
+    onPickHue(Math.round(((Math.atan2(y, x) * 180) / Math.PI + 90 + 360) % 360))
+  }
 
   return (
     <svg
       viewBox={`0 0 ${SIZE} ${SIZE}`}
       className="wheel"
       role="img"
-      aria-label={
-        selected
-          ? `Color wheel. Your pieces are dots placed by hue. Lines mark colors that go with the selected piece.`
-          : 'Color wheel. Your pieces are dots placed by hue; neutrals sit in the middle.'
-      }
+      aria-label="Color wheel. Your pieces are dots placed by hue, darker ones nearer the middle and neutrals in the center. Markers show the colors that complete the chosen harmony."
     >
-      {Array.from({ length: SEGMENTS }, (_, i) => {
-        const a0 = (i * 360) / SEGMENTS
-        return <path key={i} d={arc(a0, a0 + 360 / SEGMENTS + 0.4, RING_IN, RING_OUT)} fill={`hsl(${a0 + 5} 62% 52%)`} />
-      })}
+      <g onClick={pickHue} className={onPickHue ? 'wheel-ring pickable' : 'wheel-ring'}>
+        {Array.from({ length: SEGMENTS }, (_, i) => {
+          const a0 = (i * 360) / SEGMENTS
+          return <path key={i} d={arc(a0, a0 + 360 / SEGMENTS + 0.4, RING_IN, RING_OUT)} fill={`hsl(${a0 + 5} 62% 52%)`} />
+        })}
+      </g>
 
-      {marks && (
-        <g className="wheel-marks">
-          <path d={arc(marks.analogous[0], marks.analogous[0] + 60, 36, RING_IN - 2)} className="wheel-zone" />
-          <line x1={C} y1={C} x2={point(marks.complementary, RING_OUT + 4)[0]} y2={point(marks.complementary, RING_OUT + 4)[1]} className="wheel-line strong" />
-          {marks.triadic.map((a) => {
-            const [x, y] = point(a, RING_OUT + 4)
-            return <line key={a} x1={C} y1={C} x2={x} y2={y} className="wheel-line" />
-          })}
-        </g>
+      {baseHue !== null && (
+        <line x1={C} y1={C} x2={point(baseHue, RING_OUT + 6)[0]} y2={point(baseHue, RING_OUT + 6)[1]} className="wheel-line strong" />
       )}
+      {markers.map((h, i) => {
+        const [x, y] = point(h, (RING_IN + RING_OUT) / 2)
+        const [lx, ly] = point(h, RING_OUT + 6)
+        return (
+          <g key={`${h}-${i}`}>
+            <line x1={C} y1={C} x2={lx} y2={ly} className="wheel-line" />
+            <circle cx={x} cy={y} r={9} fill={`hsl(${h} 62% 52%)`} className="wheel-marker" />
+          </g>
+        )
+      })}
 
       {neutrals.length > 0 && <circle cx={C} cy={C} r={30} className="wheel-center" />}
       {neutrals.slice(0, 12).map((g, i) => {
@@ -80,14 +95,5 @@ export function ColorWheel({ garments, selectedId, onSelect }: Props) {
 }
 
 function Dot({ g, x, y, selected, onSelect }: { g: Garment; x: number; y: number; selected: boolean; onSelect: (id: string) => void }) {
-  return (
-    <circle
-      cx={x}
-      cy={y}
-      r={selected ? 11 : 7}
-      fill={dominantHex(g)!}
-      className={selected ? 'wheel-dot selected' : 'wheel-dot'}
-      onClick={() => onSelect(g.id)}
-    />
-  )
+  return <circle cx={x} cy={y} r={selected ? 11 : 7} fill={dominantHex(g)!} className={selected ? 'wheel-dot selected' : 'wheel-dot'} onClick={() => onSelect(g.id)} />
 }

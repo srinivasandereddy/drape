@@ -1,5 +1,5 @@
 import { Minus } from 'lucide-react'
-import { GarmentPhoto } from '../components/GarmentPhoto'
+import { PieceImage } from '../components/PieceImage'
 import { Sheet } from '../components/Sheet'
 import type { Garment } from '../lib/model'
 import { alternatives, pieceLabel, scoreOutfit, slotOf, type Outfit, type OutfitContext } from '../lib/outfit'
@@ -34,7 +34,7 @@ export function SwapSheet({ outfit, piece, garments, ctx, onPick, onClose }: Pro
             return (
               <li key={replacement.id}>
                 <button type="button" className="swap-row" onClick={() => onPick(o)}>
-                  <GarmentPhoto id={replacement.id} kind="thumb" alt="" className="swap-img" />
+                  <PieceImage garment={replacement} kind="thumb" className="swap-img" />
                   <span className="swap-name">{pieceLabel(replacement)}</span>
                   <span className={`mono ${d > 0 ? 'good-text' : d < 0 ? 'muted' : ''}`}>
                     {o.score}

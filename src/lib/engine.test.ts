@@ -256,7 +256,7 @@ describe('suggestOutfits', () => {
     expect(alts.length).toBeGreaterThan(0)
     for (const a of alts) expect(a.pieces).not.toContain(shoes)
     const lines = explain(best!, ctx())
-    expect(lines[0]).toMatch(/Feels like 32°C/)
+    expect(lines[0]).toMatch(/Thermal index 1\/5 \(feels like 32°C\)/)
     expect(lines.length).toBeGreaterThanOrEqual(3)
   })
 

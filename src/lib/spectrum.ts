@@ -154,6 +154,45 @@ export function matchesFor(piece: Garment, garments: Garment[]): Match[] {
     .sort((a, b) => b.score - a.score)
 }
 
+export type WheelMode = 'complementary' | 'monochromatic' | 'analogous' | 'triadic'
+export const WHEEL_MODES: readonly { id: WheelMode; label: string; hint: string }[] = [
+  { id: 'complementary', label: 'Complementary', hint: 'The opposite color: bold contrast' },
+  { id: 'monochromatic', label: 'Monochromatic', hint: 'Lighter and darker shades of one color' },
+  { id: 'analogous', label: 'Analogous', hint: 'Neighbors on the wheel: smooth and calm' },
+  { id: 'triadic', label: 'Triadic', hint: 'Three evenly spaced colors: playful' },
+]
+
+/** The hues that complete a harmony with `hue` in the given mode. */
+export function modeHues(mode: WheelMode, hue: number): number[] {
+  const at = (d: number) => (((hue + d) % 360) + 360) % 360
+  switch (mode) {
+    case 'complementary':
+      return [at(180)]
+    case 'monochromatic':
+      return [at(0)]
+    case 'analogous':
+      return [at(-30), at(30)]
+    case 'triadic':
+      return [at(120), at(240)]
+  }
+}
+
+/** Pieces whose main color sits near one of `hues` (chromatic colors only). */
+export function piecesNearHues(garments: Garment[], hues: number[], excludeId: string | null, tolerance = 25): Garment[] {
+  return garments.filter((g) => {
+    if (g.id === excludeId) return false
+    const hex = dominantHex(g)
+    if (!hex || isNeutral(hex)) return false
+    const h = hueOf(hex)
+    return hues.some((t) => hueDistanceDeg(h, t) <= tolerance)
+  })
+}
+
+const hueDistanceDeg = (a: number, b: number) => {
+  const d = Math.abs(a - b) % 360
+  return d > 180 ? 360 - d : d
+}
+
 /** Positions on the wheel that harmonize with a hue. */
 export function harmonyAngles(hue: number) {
   return {

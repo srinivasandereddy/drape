@@ -1,26 +1,14 @@
 import { useMemo, useState } from 'react'
-import { ColorWheel } from '../components/ColorWheel'
-import { GarmentPhoto } from '../components/GarmentPhoto'
-import { colorName } from '../lib/color'
+import { ThumbRow } from '../components/ThumbRow'
 import { useCloset } from '../lib/closet'
 import { dominantHex } from '../lib/model'
-import { pieceLabel, slotOf } from '../lib/outfit'
-import { bucketOf, HUE_BUCKETS, MATCH_GROUPS, matchesFor, NEUTRAL_BUCKET, spectrumStats } from '../lib/spectrum'
-
-const WHEEL_SLOTS = new Set(['top', 'bottom', 'onepiece', 'layer', 'footwear', 'bag'])
+import { bucketOf, HUE_BUCKETS, NEUTRAL_BUCKET, spectrumStats } from '../lib/spectrum'
+import { ColorMatcher } from './ColorMatcher'
 
 export function SpectrumScreen({ onOpen }: { onOpen: (id: string) => void }) {
   const { garments, scan } = useCloset()
   const stats = useMemo(() => spectrumStats(garments), [garments])
   const [bucket, setBucket] = useState<number | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  const wheelPieces = useMemo(() => garments.filter((g) => dominantHex(g) && WHEEL_SLOTS.has(slotOf(g))), [garments])
-  const selected = wheelPieces.find((g) => g.id === selectedId) ?? null
-  const matches = useMemo(() => {
-    const piece = wheelPieces.find((g) => g.id === selectedId)
-    return piece ? matchesFor(piece, garments) : []
-  }, [wheelPieces, selectedId, garments])
   const max = Math.max(...stats.buckets, 0.0001)
   const inBucket = bucket === null ? [] : garments.filter((g) => dominantHex(g) && bucketOf(dominantHex(g)!) === bucket)
 
@@ -93,7 +81,7 @@ export function SpectrumScreen({ onOpen }: { onOpen: (id: string) => void }) {
                   <b>{bucket === NEUTRAL_BUCKET ? 'Neutrals' : HUE_BUCKETS[bucket]!.label}</b>
                   <span className="muted"> · {inBucket.length} piece{inBucket.length === 1 ? '' : 's'} with this as the main color</span>
                 </p>
-                <ThumbRow ids={inBucket.map((g) => g.id)} labels={inBucket.map(pieceLabel)} onOpen={onOpen} />
+                <ThumbRow garments={inBucket} onOpen={onOpen} />
               </div>
             )}
 
@@ -125,69 +113,9 @@ export function SpectrumScreen({ onOpen }: { onOpen: (id: string) => void }) {
             </div>
           )}
 
-          <div className="card stack">
-            <div className="stack-sm">
-              <h2>Color matcher</h2>
-              <p className="muted small">Pick a piece to see which of your clothes go with it.</p>
-            </div>
-            <div className="picker-row" role="listbox" aria-label="Choose a piece">
-              {wheelPieces.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  role="option"
-                  aria-selected={g.id === selectedId}
-                  className={g.id === selectedId ? 'picker on' : 'picker'}
-                  onClick={() => setSelectedId(g.id)}
-                  aria-label={pieceLabel(g)}
-                >
-                  <GarmentPhoto id={g.id} kind="thumb" alt="" className="picker-img" />
-                </button>
-              ))}
-            </div>
-            <div className="wheel-wrap">
-              <ColorWheel garments={wheelPieces} selectedId={selectedId} onSelect={setSelectedId} />
-            </div>
-            {selected ? (
-              <div className="stack">
-                <p>
-                  <b>{pieceLabel(selected)}</b>
-                  <span className="muted"> · {colorName(dominantHex(selected)!)}</span>
-                </p>
-                {matches.length === 0 && <p className="muted small">Nothing in your closet pairs clearly with this yet.</p>}
-                {MATCH_GROUPS.map((grp) => {
-                  const list = matches.filter((m) => m.kind === grp.kind)
-                  if (list.length === 0) return null
-                  return (
-                    <div key={grp.kind} className="stack-sm">
-                      <p className="small">
-                        <b>{grp.label}</b> <span className="muted">· {grp.hint}</span>
-                      </p>
-                      <ThumbRow ids={list.map((m) => m.garment.id)} labels={list.map((m) => pieceLabel(m.garment))} onOpen={onOpen} />
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="muted small">Dots are your pieces: placed by hue around the wheel, darker ones nearer the middle, neutrals in the center.</p>
-            )}
-          </div>
+          <ColorMatcher garments={garments} onOpen={onOpen} />
         </>
       )}
     </section>
-  )
-}
-
-function ThumbRow({ ids, labels, onOpen }: { ids: string[]; labels: string[]; onOpen: (id: string) => void }) {
-  return (
-    <ul className="thumb-row">
-      {ids.map((id, i) => (
-        <li key={id}>
-          <button type="button" className="thumb" onClick={() => onOpen(id)} aria-label={labels[i]}>
-            <GarmentPhoto id={id} kind="thumb" alt="" className="thumb-img" />
-          </button>
-        </li>
-      ))}
-    </ul>
   )
 }

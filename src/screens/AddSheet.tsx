@@ -1,4 +1,4 @@
-import { Camera, Images, RefreshCw } from 'lucide-react'
+import { Camera, Images, Keyboard, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { GarmentForm } from '../components/GarmentForm'
 import { Sheet } from '../components/Sheet'
@@ -8,7 +8,7 @@ import { extractColorsFromBlob } from '../lib/color'
 import { PhotoError, processPhoto, type ProcessedPhoto } from '../lib/image'
 import { emptyDraft, validateDraft, type GarmentDraft } from '../lib/model'
 
-export function AddSheet({ onClose }: { onClose: () => void }) {
+export function AddSheet({ onClose, onTypeList }: { onClose: () => void; onTypeList: () => void }) {
   const toast = useToast()
   const cameraInput = useRef<HTMLInputElement>(null)
   const galleryInput = useRef<HTMLInputElement>(null)
@@ -104,6 +104,13 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           <button type="button" className="big-pick" onClick={() => galleryInput.current?.click()} disabled={processing}>
             <Images size={28} aria-hidden="true" />
             <span>Choose from gallery</span>
+          </button>
+          <button type="button" className="big-pick" onClick={onTypeList} disabled={processing}>
+            <Keyboard size={28} aria-hidden="true" />
+            <span>
+              Type a list instead
+              <span className="big-pick-hint">"White Nike Air Force, Gold hoops…"</span>
+            </span>
           </button>
           {processing && <p className="muted" role="status">Preparing photo…</p>}
           {photoError && (

@@ -4,6 +4,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { extractColorsFromBlob } from './color'
 import { getDb, requestPersistentStorage, type OutfitRecord, type StoredPhoto } from './db'
+import type { DislikeReason, FeedbackRecord, Verdict } from './feedback'
 import { newId } from './id'
 import type { ProcessedPhoto } from './image'
 import {
@@ -15,6 +16,7 @@ import {
   type Garment,
   type GarmentColor,
   type GarmentDraft,
+  type GarmentSource,
 } from './model'
 
 export interface ClosetState {
@@ -79,6 +81,77 @@ async function write<T>(fn: () => Promise<T>): Promise<T> {
     return out
   } catch (e) {
     throw new Error(errorMessage(e), { cause: e })
+  }
+}
+
+/** Forget everything loaded (used when the signed-in account changes). */
+export function resetClosetStore() {
+  loadStarted = false
+  scanning = false
+  state = { status: 'loading', garments: [], message: null, scan: null }
+  for (const l of listeners) l()
+}
+
+/** Adds several pieces without photos (typed lists, sample wardrobe) in one go. */
+export function addGarments(drafts: GarmentDraft[], source: GarmentSource): Promise<Garment[]> {
+  return write(async () => {
+    const now = Date.now()
+    const garments = drafts.map((d, i) => createGarment(d, null, new Date(now + i), undefined, source))
+    const db = await getDb()
+    const tx = db.transaction('garments', 'readwrite')
+    await Promise.all([...garments.map((g) => tx.store.put(g)), tx.done])
+    void requestPersistentStorage()
+    return garments
+  })
+}
+
+/** Removes every sample piece. Returns how many were removed. */
+export function removeSamples(): Promise<number> {
+  return write(async () => {
+    const db = await getDb()
+    const tx = db.transaction('garments', 'readwrite')
+    const all = (await tx.store.getAll()).map(normalizeGarment).filter((g): g is Garment => !!g && !g.deletedAt && g.source === 'sample')
+    for (const g of all) await tx.store.put(markDeleted(g))
+    await tx.done
+    return all.length
+  })
+}
+
+/** Adds or replaces the photo of an existing piece, and re-reads its colors unless they were fixed by hand. */
+export function setGarmentPhoto(id: string, photo: ProcessedPhoto, colors: GarmentColor[]): Promise<Garment> {
+  return write(async () => {
+    const db = await getDb()
+    const tx = db.transaction(['garments', 'photos'], 'readwrite')
+    const current = normalizeGarment(await tx.objectStore('garments').get(id))
+    if (!current || current.deletedAt) throw new Error('That piece is no longer in your closet.')
+    const next: Garment = {
+      ...current,
+      photo: { width: photo.width, height: photo.height },
+      source: current.source === 'sample' ? 'sample' : 'photo',
+      colors: current.colorsEdited || colors.length === 0 ? current.colors : colors,
+      updatedAt: new Date().toISOString(),
+    }
+    await Promise.all([tx.objectStore('photos').put({ id, full: photo.full, thumb: photo.thumb }), tx.objectStore('garments').put(next), tx.done])
+    return next
+  })
+}
+
+// ---------- feedback ----------
+
+export async function saveFeedback(garmentIds: string[], verdict: Verdict, reason: DislikeReason | null, note = ''): Promise<FeedbackRecord> {
+  const now = new Date()
+  const record: FeedbackRecord = { id: newId(now.getTime()), date: localDate(now), garmentIds, verdict, reason, note: note.slice(0, 200), createdAt: now.toISOString() }
+  const db = await getDb()
+  await db.put('feedback', record)
+  return record
+}
+
+export async function listFeedback(): Promise<FeedbackRecord[]> {
+  try {
+    const db = await getDb()
+    return await db.getAll('feedback')
+  } catch {
+    return []
   }
 }
 
@@ -171,8 +244,14 @@ export async function getPhoto(id: string): Promise<StoredPhoto | undefined> {
 export function wipeLocalData(): Promise<void> {
   return write(async () => {
     const db = await getDb()
-    const tx = db.transaction(['garments', 'photos', 'outfits'], 'readwrite')
-    await Promise.all([tx.objectStore('garments').clear(), tx.objectStore('photos').clear(), tx.objectStore('outfits').clear(), tx.done])
+    const tx = db.transaction(['garments', 'photos', 'outfits', 'feedback'], 'readwrite')
+    await Promise.all([
+      tx.objectStore('garments').clear(),
+      tx.objectStore('photos').clear(),
+      tx.objectStore('outfits').clear(),
+      tx.objectStore('feedback').clear(),
+      tx.done,
+    ])
   })
 }
 

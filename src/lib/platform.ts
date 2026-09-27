@@ -29,6 +29,13 @@ export const prefs = {
       /* ignore: a preference is not worth an error */
     }
   },
+  remove(key: string): void {
+    try {
+      localStorage.removeItem(`drape.${key}`)
+    } catch {
+      /* ignore */
+    }
+  },
 }
 
 export const APP_VERSION: string = __APP_VERSION__

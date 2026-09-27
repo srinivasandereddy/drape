@@ -18,6 +18,9 @@ export type Warmth = 1 | 2 | 3
 export type Pattern = 'solid' | 'striped' | 'checked' | 'printed' | 'floral' | 'embroidered' | 'other'
 export type Season = 'summer' | 'monsoon' | 'winter'
 export type Metal = 'gold' | 'silver' | 'rose-gold' | 'other'
+export type Fabric = 'cotton' | 'linen' | 'silk' | 'wool' | 'knit' | 'denim' | 'leather' | 'synthetic' | 'other'
+/** 1 = revealing … 5 = full coverage */
+export type Coverage = 1 | 2 | 3 | 4 | 5
 
 export interface CategoryDef {
   id: CategoryId
@@ -87,6 +90,103 @@ export const PATTERN_LABELS: Record<Pattern, string> = {
 }
 export const SEASON_LABELS: Record<Season, string> = { summer: 'Summer', monsoon: 'Monsoon', winter: 'Winter' }
 export const METAL_LABELS: Record<Metal, string> = { gold: 'Gold', silver: 'Silver', 'rose-gold': 'Rose gold', other: 'Other' }
+export const FABRIC_LABELS: Record<Fabric, string> = {
+  cotton: 'Cotton',
+  linen: 'Linen',
+  silk: 'Silk / satin',
+  wool: 'Wool',
+  knit: 'Knit',
+  denim: 'Denim',
+  leather: 'Leather',
+  synthetic: 'Synthetic',
+  other: 'Other',
+}
+export const COVERAGE_LABELS: Record<Coverage, string> = { 1: 'Revealing', 2: 'Some skin', 3: 'Balanced', 4: 'Covered', 5: 'Full' }
+
+const LOW_COVERAGE: Record<string, Coverage> = {
+  'Crop top': 2,
+  'Tank top': 2,
+  Shorts: 2,
+  Skirt: 3,
+  'Casual dress': 3,
+  'Formal dress': 3,
+  Blouse: 4,
+  'Co-ord set': 3,
+}
+const FULL_COVERAGE = new Set(['Saree', 'Salwar suit', 'Lehenga', 'Sherwani', 'Kurta', 'Kurti', 'Jumpsuit', 'Trousers', 'Jeans', 'Chinos', 'Joggers', 'Leggings', 'Coat', 'Raincoat'])
+
+/** How much a piece covers, guessed from its type. Only clothes matter for the modesty setting. */
+export function defaultCoverage(category: CategoryId, subtype: string): Coverage {
+  if (!categoryDef(category).has.warmth || category === 'footwear') return 5 // shoes, jewellery, bags: not counted
+  if (LOW_COVERAGE[subtype]) return LOW_COVERAGE[subtype]
+  if (FULL_COVERAGE.has(subtype)) return 5
+  return 4
+}
+
+const FABRIC_BY_SUBTYPE: Record<string, Fabric> = {
+  Jeans: 'denim',
+  Sweater: 'knit',
+  Cardigan: 'knit',
+  Hoodie: 'knit',
+  'T-shirt': 'cotton',
+  Polo: 'cotton',
+  Kurta: 'cotton',
+  Kurti: 'cotton',
+  Chinos: 'cotton',
+  Loafers: 'leather',
+  'Formal shoes': 'leather',
+  Boots: 'leather',
+  Raincoat: 'synthetic',
+}
+export const defaultFabric = (subtype: string): Fabric | null => FABRIC_BY_SUBTYPE[subtype] ?? null
+
+const FORMALITY_BY_SUBTYPE: Record<string, Formality> = {
+  Hoodie: 1,
+  Joggers: 1,
+  Leggings: 1,
+  Slippers: 1,
+  'Tank top': 2,
+  'Crop top': 2,
+  'T-shirt': 2,
+  Shorts: 2,
+  Jeans: 2,
+  Sneakers: 2,
+  Sandals: 2,
+  Backpack: 2,
+  'Cap / hat': 2,
+  Headphones: 2,
+  Polo: 3,
+  Shirt: 3,
+  Blouse: 3,
+  Chinos: 3,
+  Trousers: 3,
+  Loafers: 3,
+  Kurta: 3,
+  Kurti: 3,
+  Cardigan: 3,
+  Watch: 3,
+  Blazer: 4,
+  'Formal shoes': 4,
+  'Formal dress': 4,
+  Heels: 4,
+  Clutch: 4,
+  Tie: 4,
+  Saree: 4,
+  Lehenga: 4,
+  Sherwani: 4,
+  'Laptop bag': 3,
+  Coat: 3,
+}
+export const defaultFormality = (subtype: string): Formality => FORMALITY_BY_SUBTYPE[subtype] ?? 2
+
+const WARM_SUBTYPES = new Set(['Sweater', 'Hoodie', 'Coat', 'Cardigan', 'Boots', 'Jacket'])
+const LIGHT_SUBTYPES = new Set(['Tank top', 'Crop top', 'Shorts', 'Sandals', 'Slippers', 'Kolhapuris', 'Flats'])
+/** 1 light … 3 warm, guessed from type and fabric. */
+export function defaultWarmth(subtype: string, fabric: Fabric | null): Warmth {
+  if (fabric === 'wool' || fabric === 'knit' || WARM_SUBTYPES.has(subtype)) return 3
+  if (fabric === 'linen' || LIGHT_SUBTYPES.has(subtype)) return 1
+  return 2
+}
 
 /** Filter chips on the Closet screen. */
 export const CLOSET_FILTERS: readonly { id: string; label: string; categories: readonly CategoryId[] | null }[] = [
