@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CATEGORIES } from './catalog'
-import { bodyFor, garmentShapes, VIEW_H } from './mannequin'
+import { bodyFor, bodyPaths, garmentShapes, photoBox, VIEW_H } from './mannequin'
 
 describe('mannequin', () => {
   it('follows height and weight', () => {
@@ -12,6 +12,29 @@ describe('mannequin', () => {
     expect(bodyFor(null, null, null).basis).toBe('average proportions')
     expect(bodyFor(165, 60, 'female').hip).toBeGreaterThan(bodyFor(165, 60, 'male').hip)
     expect(bodyFor(165, 60, 'male').shoulder).toBeGreaterThan(bodyFor(165, 60, 'female').shoulder)
+  })
+  it('draws a clearly male figure for men: V-shape, straight hips, short hair', () => {
+    const m = bodyFor(175, 72, 'male')
+    const w = bodyFor(162, 56, 'female')
+    expect(m.figure).toBe('masculine')
+    expect(m.shoulder / m.hip).toBeGreaterThan(1.35) // broad shoulders, narrow hips
+    expect(m.hip).toBeLessThanOrEqual(m.chest)
+    expect(w.hip).toBeGreaterThan(w.waist * 1.4) // hourglass
+    expect(bodyPaths(m).hairBehind).toBe(false)
+    expect(bodyPaths(w).hairBehind).toBe(true)
+    expect(bodyPaths(bodyFor(null, null, null)).hair).toBeNull()
+  })
+  it('places cut-out photos over the right part of the body', () => {
+    const b = bodyFor(170, 65, 'male')
+    const top = photoBox(b, 'top', 'T-shirt')!
+    const jeans = photoBox(b, 'bottom', 'Jeans')!
+    const shoes = photoBox(b, 'footwear', 'Sneakers')!
+    expect(top.y).toBeLessThan(b.y.chest)
+    expect(jeans.y).toBeLessThan(b.y.hip)
+    expect(jeans.y + jeans.h).toBeGreaterThan(b.y.knee)
+    expect(shoes.y + shoes.h).toBeGreaterThanOrEqual(b.y.floor)
+    expect(top.layer).toBeGreaterThan(jeans.layer)
+    expect(photoBox(b, 'jewellery', 'Ring')).toBeNull()
   })
   it('draws every clothing and shoe type, inside the frame', () => {
     const b = bodyFor(170, 65, 'other')

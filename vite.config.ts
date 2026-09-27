@@ -22,6 +22,8 @@ export default defineConfig({
         // Cache the app shell and fonts so Drape opens without a connection.
         // Google sign-in and Drive requests go to other domains and are never cached.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // The privacy page is a real page, not a screen of the app.
+        navigateFallbackDenylist: [/privacy\.html$/],
       },
       manifest: {
         name: 'Drape',

@@ -623,3 +623,7 @@ button:disabled { cursor: default; }
 .how-table th { font-size: 12px; color: var(--mute); font-weight: 500; }
 .how-table td.mono { text-align: center; }
 a.btn { text-decoration: none; }
+.mq-hair { fill: var(--mq-hair); }
+:root { --mq-hair: #5b4a3f; }
+@media (prefers-color-scheme: dark) { :root { --mq-hair: #2a2320; } }
+:root[data-look='midnight'] { --mq-hair: #2a2320; }

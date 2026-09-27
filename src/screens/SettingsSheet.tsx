@@ -229,7 +229,12 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
           )}
         </section>
 
-        <p className="muted small center">Drape {APP_VERSION}</p>
+        <p className="muted small center">
+          Drape {APP_VERSION} ·{' '}
+          <a href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener">
+            Privacy policy
+          </a>
+        </p>
       </div>
     </Sheet>
   )

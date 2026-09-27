@@ -418,7 +418,7 @@ export function TodayScreen({ onAdd, onQuickAdd, onEditProfile }: Props) {
                 {profile.heightCm && profile.weightKg
                   ? `Shaped from ${profile.heightCm} cm and ${profile.weightKg} kg. `
                   : 'Average proportions. Add your height and weight in your profile for a closer figure. '}
-                A styling preview in your pieces' colors, not a fit guide.
+                Pieces with a background-removed photo appear as that photo; others are drawn in their colors. A styling preview, not a fit guide.
               </p>
             </div>
           )}
