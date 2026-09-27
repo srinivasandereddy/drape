@@ -1,6 +1,7 @@
 import { Luggage, Palette, Plus, Settings, Shirt, Sparkles, Sun } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { InstallBanner } from './components/InstallBanner'
+import { SyncBadge } from './components/SyncBadge'
 import { useToast } from './components/toastContext'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useAccount, type Account } from './lib/account'
@@ -8,6 +9,7 @@ import { reload } from './lib/closet'
 import { discardLegacy, importLegacy, legacyPieceCount } from './lib/db'
 import { prefs } from './lib/platform'
 import { useProfile } from './lib/profile'
+import { startSync, useSync } from './lib/syncStore'
 import { AddSheet } from './screens/AddSheet'
 import { ClosetScreen } from './screens/ClosetScreen'
 import { GarmentSheet } from './screens/GarmentSheet'
@@ -46,13 +48,21 @@ function SignedIn({ account }: { account: Account }) {
   const [tripEditor, setTripEditor] = useState<TripPrefill | null>(null)
   const [openTripId, setOpenTripId] = useState<string | null>(null)
 
+  // Keep this person's closet in step with their Drive while it is open.
+  useEffect(() => {
+    startSync(account.sub)
+    return () => startSync(null)
+  }, [account.sub])
+
   // Apply the person's chosen colors.
   useEffect(() => {
     document.documentElement.dataset.look = profile.theme
   }, [profile.theme])
 
-  // First time on this account: open the setup wizard once.
-  const needsWizard = loaded && !profile.onboarded && !autoWizardDone
+  // First time on this account: open the setup wizard once, but only after the first
+  // sync, so a returning person on a new phone gets their saved profile instead.
+  const { firstDone } = useSync()
+  const needsWizard = loaded && firstDone && !profile.onboarded && !autoWizardDone
   if (needsWizard) {
     setAutoWizardDone(true)
     setWizard({ step: 0 })
@@ -84,9 +94,12 @@ function SignedIn({ account }: { account: Account }) {
     <div className="app">
       <header className="topbar">
         <span className="wordmark">Drape</span>
-        <button type="button" className="avatar-btn" aria-label={`Settings for ${account.email}`} onClick={() => setSettingsOpen(true)}>
+        <span className="topbar-right">
+          <SyncBadge onOpenSettings={() => setSettingsOpen(true)} />
+          <button type="button" className="avatar-btn" aria-label={`Settings for ${account.email}`} onClick={() => setSettingsOpen(true)}>
           {account.picture ? <img src={account.picture} alt="" referrerPolicy="no-referrer" /> : <Settings size={22} aria-hidden="true" />}
-        </button>
+          </button>
+        </span>
       </header>
 
       <main className="content">

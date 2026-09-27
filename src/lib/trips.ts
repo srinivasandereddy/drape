@@ -1,6 +1,7 @@
 // The trips store: saved trips for the signed-in person.
 
 import { useEffect, useSyncExternalStore } from 'react'
+import { markChanged } from './changes'
 import { getDb } from './db'
 import { createTrip, normalizeTrip, type Trip, type TripDraft } from './trip'
 
@@ -12,6 +13,11 @@ const listeners = new Set<() => void>()
 function setState(next: State) {
   state = next
   for (const l of listeners) l()
+}
+
+/** Re-reads trips from the phone database (after sync). */
+export function reloadTrips(): Promise<void> {
+  return load()
 }
 
 async function load() {
@@ -49,6 +55,7 @@ export async function addTrip(draft: TripDraft): Promise<Trip> {
   const db = await getDb()
   await db.put('trips', trip)
   await load()
+  markChanged()
   return trip
 }
 
@@ -60,6 +67,7 @@ export async function updateTrip(id: string, change: (t: Trip) => Trip): Promise
   const next = { ...change(current), updatedAt: new Date().toISOString() }
   await Promise.all([tx.store.put(next), tx.done])
   await load()
+  markChanged()
   return next
 }
 

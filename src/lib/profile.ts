@@ -4,6 +4,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react'
 import { METAL_LABELS, type Formality, type Metal } from './catalog'
+import { markChanged } from './changes'
 import { getDb } from './db'
 import { DOSHA_ORDER, DOSHA_QUESTIONS, scoreDosha, type DoshaId, type DoshaResult } from './dosha'
 import { STYLE_IDS, type StyleId } from './styles'
@@ -112,6 +113,11 @@ function setState(next: State) {
   for (const l of listeners) l()
 }
 
+/** Re-reads the profile from the phone database (after sync brought a newer one). */
+export function reloadProfile(): Promise<void> {
+  return load()
+}
+
 async function load() {
   try {
     const db = await getDb()
@@ -144,6 +150,7 @@ export async function saveProfile(patch: Partial<Profile>): Promise<Profile> {
   const db = await getDb()
   await db.put('meta', { key: 'profile', value: profile, updatedAt: new Date().toISOString() })
   setState({ loaded: true, profile })
+  markChanged()
   return profile
 }
 

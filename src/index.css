@@ -591,3 +591,11 @@ button:disabled { cursor: default; }
 .ask-form { display: flex; gap: 8px; max-width: 608px; margin: 0 auto; }
 .ask-form .text-input { flex: 1; min-width: 0; }
 .ask-send { width: 48px; padding: 0; flex: none; }
+
+/* Sync indicator */
+.topbar-right { display: inline-flex; align-items: center; gap: 2px; }
+.sync-badge { position: relative; width: 40px; height: 44px; border: 0; background: none; display: grid; place-items: center; color: var(--mute); }
+.sync-badge.idle { color: var(--good); }
+.sync-badge.error { color: var(--bad); }
+.sync-badge.paused { color: var(--ink); }
+.sync-dot { position: absolute; top: 10px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }

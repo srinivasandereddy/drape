@@ -2,6 +2,8 @@
 // appDataFolder (`drive.appdata`), so the app cannot see any other Drive file.
 // `openid email profile` tell Drape who is signed in, to keep each person's closet apart.
 
+import type { Remote, RemoteFile } from './sync'
+
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
 const SCOPES = `openid email profile ${DRIVE_SCOPE}`
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
@@ -44,7 +46,29 @@ function loadGoogleScript(): Promise<void> {
   return scriptPromise
 }
 
-let token: { value: string; expiresAt: number; drive: boolean } | null = null
+type Token = { value: string; expiresAt: number; drive: boolean }
+const TOKEN_KEY = 'drape.gtoken'
+
+// Google access lasts about an hour. Keeping it across app restarts in that hour
+// means sync keeps working when the phone reopens Drape; it is cleared on sign-out.
+function loadToken(): Token | null {
+  try {
+    const t = JSON.parse(localStorage.getItem(TOKEN_KEY) ?? 'null') as Token | null
+    return t && typeof t.value === 'string' && t.expiresAt > Date.now() ? t : null
+  } catch {
+    return null
+  }
+}
+function saveToken(t: Token | null) {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, JSON.stringify(t))
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    /* private mode: keep it in memory only */
+  }
+}
+
+let token: Token | null = loadToken()
 
 export const isSignedIn = () => Boolean(token && token.expiresAt > Date.now())
 /** False if the person unticked Drive access on Google's consent screen. */
@@ -76,6 +100,7 @@ export async function signIn(hint?: string): Promise<void> {
           expiresAt: Date.now() + (r.expires_in ?? 3600) * 1000 - 30_000,
           drive: oauth.hasGrantedAllScopes(r, DRIVE_SCOPE),
         }
+        saveToken(token)
         resolve()
       },
       error_callback: (e) => reject(new Error(friendlyError(e.type))),
@@ -107,14 +132,38 @@ export async function fetchUser(): Promise<GoogleUser> {
 export function signOut() {
   const t = token?.value
   token = null
+  saveToken(null)
   // Also tell Google, so the next sign-in shows the account picker again.
   if (t && window.google) window.google.accounts.oauth2.revoke(t)
 }
 
-async function api(url: string, init: RequestInit = {}): Promise<Response> {
-  if (!isSignedIn()) throw new Error('Not signed in, or the sign-in expired. Sign in again.')
-  const res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token!.value}` } })
-  if (!res.ok) throw new Error(`Drive said ${res.status}: ${(await res.text()).slice(0, 200)}`)
+/** Thrown when Google access has expired and the person must reconnect. */
+export class NeedsSignIn extends Error {
+  constructor() {
+    super('Google access expired. Tap to reconnect.')
+    this.name = 'NeedsSignIn'
+  }
+}
+
+async function api(url: string, init: RequestInit = {}, attempt = 0): Promise<Response> {
+  if (!isSignedIn()) throw new NeedsSignIn()
+  let res: Response
+  try {
+    res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token!.value}` } })
+  } catch {
+    throw new Error('No internet connection. Drape will sync when you are back online.')
+  }
+  if (res.status === 401) {
+    token = null
+    saveToken(null)
+    throw new NeedsSignIn()
+  }
+  // Rate limits and server hiccups: wait and retry a few times.
+  if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+    await new Promise((r) => setTimeout(r, 800 * 2 ** attempt))
+    return api(url, init, attempt + 1)
+  }
+  if (!res.ok) throw new Error(`Google Drive replied ${res.status}. Try again later.`)
   return res
 }
 
@@ -148,4 +197,63 @@ export async function writeJson(name: string, data: unknown): Promise<DriveFile>
 export async function readJson<T>(id: string): Promise<T> {
   const res = await api(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`)
   return res.json()
+}
+
+// ---------- the Remote used by sync ----------
+
+
+const FILES = 'https://www.googleapis.com/drive/v3/files'
+const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files'
+
+function multipart(meta: object, body: Blob | object): { body: Blob; type: string } {
+  const boundary = 'drape' + Math.random().toString(36).slice(2)
+  const content = body instanceof Blob ? body : new Blob([JSON.stringify(body)], { type: 'application/json' })
+  return {
+    type: `multipart/related; boundary=${boundary}`,
+    body: new Blob([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n`,
+      `--${boundary}\r\nContent-Type: ${content.type || 'application/octet-stream'}\r\n\r\n`,
+      content,
+      `\r\n--${boundary}--`,
+    ]),
+  }
+}
+
+const toRemote = (f: { id: string; name: string; appProperties?: { u?: string } }): RemoteFile => ({ id: f.id, name: f.name, updatedAt: f.appProperties?.u ?? '' })
+
+/** Drape's hidden appDataFolder, as a sync Remote. */
+export const driveRemote: Remote = {
+  async list() {
+    const out: RemoteFile[] = []
+    let pageToken: string | undefined
+    do {
+      const q = new URLSearchParams({ spaces: 'appDataFolder', fields: 'nextPageToken,files(id,name,appProperties)', pageSize: '1000' })
+      if (pageToken) q.set('pageToken', pageToken)
+      const data = (await (await api(`${FILES}?${q}`)).json()) as { nextPageToken?: string; files: { id: string; name: string; appProperties?: { u?: string } }[] }
+      out.push(...data.files.map(toRemote))
+      pageToken = data.nextPageToken
+    } while (pageToken)
+    return out
+  },
+  async getJson(id) {
+    return (await api(`${FILES}/${id}?alt=media`)).json()
+  },
+  async getBlob(id) {
+    return (await api(`${FILES}/${id}?alt=media`)).blob()
+  },
+  async put(name, body, updatedAt, existingId) {
+    const meta = existingId ? { appProperties: { u: updatedAt } } : { name, parents: ['appDataFolder'], appProperties: { u: updatedAt } }
+    const m = multipart(meta, body)
+    const url = existingId ? `${UPLOAD}/${existingId}?uploadType=multipart&fields=id,name,appProperties` : `${UPLOAD}?uploadType=multipart&fields=id,name,appProperties`
+    const res = await api(url, { method: existingId ? 'PATCH' : 'POST', headers: { 'Content-Type': m.type }, body: m.body })
+    return toRemote(await res.json())
+  },
+  async remove(id) {
+    try {
+      await api(`${FILES}/${id}`, { method: 'DELETE' })
+    } catch (e) {
+      // Already gone (e.g. removed by another phone): that's fine.
+      if (!(e instanceof Error && e.message.includes('404'))) throw e
+    }
+  },
 }

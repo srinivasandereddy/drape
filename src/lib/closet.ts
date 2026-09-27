@@ -2,6 +2,7 @@
 // Screens subscribe with `useCloset()` and re-render when anything changes.
 
 import { useEffect, useSyncExternalStore } from 'react'
+import { markChanged } from './changes'
 import { extractColorsFromBlob } from './color'
 import { getDb, requestPersistentStorage, type OutfitRecord, type StoredPhoto } from './db'
 import type { DislikeReason, FeedbackRecord, Verdict } from './feedback'
@@ -78,6 +79,7 @@ async function write<T>(fn: () => Promise<T>): Promise<T> {
   try {
     const out = await fn()
     await reload()
+    markChanged()
     return out
   } catch (e) {
     throw new Error(errorMessage(e), { cause: e })
@@ -140,16 +142,17 @@ export function setGarmentPhoto(id: string, photo: ProcessedPhoto, colors: Garme
 
 export async function saveFeedback(garmentIds: string[], verdict: Verdict, reason: DislikeReason | null, note = ''): Promise<FeedbackRecord> {
   const now = new Date()
-  const record: FeedbackRecord = { id: newId(now.getTime()), date: localDate(now), garmentIds, verdict, reason, note: note.slice(0, 200), createdAt: now.toISOString() }
+  const record: FeedbackRecord = { id: newId(now.getTime()), date: localDate(now), garmentIds, verdict, reason, note: note.slice(0, 200), createdAt: now.toISOString(), deletedAt: null }
   const db = await getDb()
   await db.put('feedback', record)
+  markChanged()
   return record
 }
 
 export async function listFeedback(): Promise<FeedbackRecord[]> {
   try {
     const db = await getDb()
-    return await db.getAll('feedback')
+    return (await db.getAll('feedback')).filter((f) => !f.deletedAt)
   } catch {
     return []
   }
@@ -240,19 +243,21 @@ export async function getPhoto(id: string): Promise<StoredPhoto | undefined> {
   return db.get('photos', id)
 }
 
-/** Removes every garment, photo and outfit from this phone. Drive is not touched. */
-export function wipeLocalData(): Promise<void> {
+/**
+ * Deletes every piece, outfit, trip and piece of feedback for this person.
+ * Records are marked deleted (not erased) so the delete also reaches their other phones and Drive.
+ */
+export function deleteEverything(): Promise<void> {
   return write(async () => {
+    const at = new Date().toISOString()
     const db = await getDb()
     const tx = db.transaction(['garments', 'photos', 'outfits', 'feedback', 'trips'], 'readwrite')
-    await Promise.all([
-      tx.objectStore('trips').clear(),
-      tx.objectStore('garments').clear(),
-      tx.objectStore('photos').clear(),
-      tx.objectStore('outfits').clear(),
-      tx.objectStore('feedback').clear(),
-      tx.done,
-    ])
+    for (const g of await tx.objectStore('garments').getAll()) if (!g.deletedAt) await tx.objectStore('garments').put({ ...g, deletedAt: at, updatedAt: at })
+    await tx.objectStore('photos').clear()
+    for (const o of await tx.objectStore('outfits').getAll()) if (!o.deletedAt) await tx.objectStore('outfits').put({ ...o, deletedAt: at })
+    for (const f of await tx.objectStore('feedback').getAll()) if (!f.deletedAt) await tx.objectStore('feedback').put({ ...f, deletedAt: at })
+    for (const t of await tx.objectStore('trips').getAll()) if (!t.deletedAt) await tx.objectStore('trips').put({ ...t, deletedAt: at, updatedAt: at })
+    await tx.done
   })
 }
 

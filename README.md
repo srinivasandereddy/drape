@@ -34,8 +34,8 @@ Then open http://localhost:5173. Google sign-in needs `VITE_GOOGLE_CLIENT_ID` in
 3. Colors and Spectrum: color reading, hue chart, insights, color wheel matcher — done
 4. Today's outfit: live weather, occasion, work routine, scoring, swap, wear log — done
 5. Personal (v0.4): Google accounts with a private closet per person, profile wizard, 10-question dosha quiz, daily feeling and thermal index, free-text occasion and vibe, style tropes, modesty, metal, Love it / Don't like with learning, typed wardrobe lists, sample wardrobe, color wheel modes — done
-6. Google Drive sync across phones (v0.5)
-7. Trips and packing lists, offline stylist assistant (v0.6)
+6. Sync and backup: each person's closet, photos, profile, trips and history in step across their phones through their own Drive (v0.5) — done
+7. Trips with per-day weather, outfits and packing checklist; Ask Drape offline assistant; styles by gender plus activities; score breakdown (v0.6) — done
 
 ## How outfits are scored
 
@@ -50,11 +50,11 @@ Each idea is built from your own closet (top + bottom, or a one-piece, plus shoe
 | Body (dosha fabrics and colors) | 5 | 5 |
 | Freshness (not worn in the last few days) | 10 | 10 |
 
-Style and body points move to harmony when not set. Love it / Don't like feedback adds or removes up to 8 points, and modesty and today's "Don't like" answers filter pieces out entirely.
+Style and body points move to harmony when not set. Love it / Don't like feedback adds or removes up to 8 points, and today's "Don't like" answers filter pieces out entirely.
 
 ## Accounts
 
-Each Google account gets its own on-phone database (`drape-u-<google id>`) and, from v0.5, its own hidden Drive folder. There is no shared server. While the Google Cloud project is in Testing mode, each person's Gmail must be added under Google Auth Platform → Audience → Test users.
+Each Google account gets its own on-phone database (`drape-u-<google id>`) and its own hidden Drive folder, synced in `src/lib/sync.ts` (newest edit wins; deletes are markers). There is no shared server. While the Google Cloud project is in Testing mode, each person's Gmail must be added under Google Auth Platform → Audience → Test users.
 
 The rules live in `src/lib/outfit.ts` and `src/lib/harmony.ts`, with tests in `src/lib/engine.test.ts`.
 

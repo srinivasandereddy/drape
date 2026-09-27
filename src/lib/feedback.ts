@@ -27,6 +27,8 @@ export interface FeedbackRecord {
   reason: DislikeReason | null
   note: string
   createdAt: string
+  /** Set when deleted, so the delete syncs to other phones. */
+  deletedAt?: string | null
 }
 
 /** Changes that apply for the rest of today after a "Don't like". */

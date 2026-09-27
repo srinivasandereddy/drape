@@ -41,10 +41,17 @@ const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').t
  * a place in the person's home country, then the first result.
  */
 export function bestCityMatch(query: string, results: City[], homeCountry?: string): City | null {
+  const known = knownDestination(query)
+  if (known) return known
   const q = fold(query)
   const home = homeCountry ? fold(homeCountry) : null
   const inHome = (list: City[]) => (home ? (list.find((c) => fold(c.country) === home) ?? list[0]) : list[0])
   const exact = results.filter((c) => fold(c.name) === q)
+  // A same-named place in the person's own country beats one abroad.
+  if (home) {
+    const local = results.find((c) => fold(c.country) === home && (fold(c.name) === q || fold(c.region) === q))
+    if (local) return local
+  }
   if (exact.length) return inHome(exact) ?? null
   const region = results.filter((c) => fold(c.region) === q)
   if (region.length) return inHome(region) ?? null
@@ -78,17 +85,48 @@ const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Numb
 const rec = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {})
 const first = (v: unknown): unknown => (Array.isArray(v) ? v[0] : undefined)
 
+/**
+ * Popular destinations that are regions, states or island groups, not cities, so the
+ * city search can't find them (it finds "Genoa" for "Goa"). Each uses its main town's weather.
+ */
+const DESTINATIONS: Record<string, City> = {
+  goa: { name: 'Goa', region: 'Panaji area', country: 'India', latitude: 15.4909, longitude: 73.8278 },
+  kerala: { name: 'Kerala', region: 'Kochi area', country: 'India', latitude: 9.9312, longitude: 76.2673 },
+  kashmir: { name: 'Kashmir', region: 'Srinagar area', country: 'India', latitude: 34.0837, longitude: 74.7973 },
+  ladakh: { name: 'Ladakh', region: 'Leh area', country: 'India', latitude: 34.1526, longitude: 77.5771 },
+  coorg: { name: 'Coorg', region: 'Madikeri area', country: 'India', latitude: 12.4244, longitude: 75.7382 },
+  andaman: { name: 'Andaman Islands', region: 'Port Blair area', country: 'India', latitude: 11.6234, longitude: 92.7265 },
+  himachal: { name: 'Himachal Pradesh', region: 'Shimla area', country: 'India', latitude: 31.1048, longitude: 77.1734 },
+  rajasthan: { name: 'Rajasthan', region: 'Jaipur area', country: 'India', latitude: 26.9124, longitude: 75.7873 },
+  sikkim: { name: 'Sikkim', region: 'Gangtok area', country: 'India', latitude: 27.3314, longitude: 88.6138 },
+  uttarakhand: { name: 'Uttarakhand', region: 'Dehradun area', country: 'India', latitude: 30.3165, longitude: 78.0322 },
+  meghalaya: { name: 'Meghalaya', region: 'Shillong area', country: 'India', latitude: 25.5788, longitude: 91.8933 },
+  lakshadweep: { name: 'Lakshadweep', region: 'Kavaratti area', country: 'India', latitude: 10.5669, longitude: 72.642 },
+  bali: { name: 'Bali', region: 'Denpasar area', country: 'Indonesia', latitude: -8.6705, longitude: 115.2126 },
+  maldives: { name: 'Maldives', region: 'Malé area', country: 'Maldives', latitude: 4.1755, longitude: 73.5093 },
+  hawaii: { name: 'Hawaii', region: 'Honolulu area', country: 'United States', latitude: 21.3069, longitude: -157.8583 },
+  tuscany: { name: 'Tuscany', region: 'Florence area', country: 'Italy', latitude: 43.7696, longitude: 11.2558 },
+}
+const ALIASES: Record<string, string> = { 'andaman islands': 'andaman', andamans: 'andaman', 'himachal pradesh': 'himachal', 'the maldives': 'maldives', leh: 'ladakh', kodagu: 'coorg' }
+
+export function knownDestination(query: string): City | null {
+  const q = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  return DESTINATIONS[ALIASES[q] ?? q] ?? null
+}
+
 export async function searchCities(query: string): Promise<City[]> {
   const q = query.trim()
   if (q.length < 2) return []
+  const known = knownDestination(q)
   const params = new URLSearchParams({ name: q, count: '10', language: 'en', format: 'json' })
   const data = rec(await getJson(`https://geocoding-api.open-meteo.com/v1/search?${params}`))
   const results = Array.isArray(data.results) ? data.results : []
-  return results.map(rec).flatMap((r) =>
+  const found = results.map(rec).flatMap((r) =>
     typeof r.name === 'string' && typeof r.latitude === 'number' && typeof r.longitude === 'number'
       ? [{ name: r.name, region: typeof r.admin1 === 'string' ? r.admin1 : '', country: typeof r.country === 'string' ? r.country : '', latitude: r.latitude, longitude: r.longitude }]
       : [],
   )
+  return known ? [known, ...found.filter((c) => !(c.latitude === known.latitude && c.longitude === known.longitude))] : found
 }
 
 /** Turns an Open-Meteo forecast response into our Weather shape. Exported for tests. */

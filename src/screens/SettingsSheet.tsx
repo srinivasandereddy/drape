@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { Sheet } from '../components/Sheet'
 import { useToast } from '../components/toastContext'
 import { reconnect, removeAccountFromPhone, signOutAccount, useAccount } from '../lib/account'
-import { removeSamples, useCloset, wipeLocalData } from '../lib/closet'
+import { deleteEverything, removeSamples, useCloset } from '../lib/closet'
 import { storageEstimate } from '../lib/db'
 import { doshaLabel } from '../lib/dosha'
-import { hasDriveAccess, isSignedIn, listFiles, writeJson } from '../lib/drive'
 import { APP_VERSION, isStandalone } from '../lib/platform'
+import { syncNow, useSync } from '../lib/syncStore'
 import { metalLabel, routineDef, THEMES, useProfile } from '../lib/profile'
 import { styleDef } from '../lib/styles'
 import { cityLabel } from '../lib/weather'
@@ -20,8 +20,6 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
   const { profile } = useProfile()
   const [storage, setStorage] = useState<{ usedMb: number; quotaMb: number } | null>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
-  const [online, setOnline] = useState(isSignedIn())
-  const [driveFiles, setDriveFiles] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'wipe' | 'remove' | null>(null)
   const samples = garments.filter((g) => g.source === 'sample').length
@@ -40,7 +38,6 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
       toast(`${label}: ${e instanceof Error ? e.message : 'failed'}`, 'error')
     } finally {
       setBusy(false)
-      setOnline(isSignedIn())
     }
   }
 
@@ -133,37 +130,10 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
             <span>Protected from clean-up</span>
             <b>{persisted === null ? 'Unknown' : persisted ? 'Yes' : 'Not yet'}</b>
           </div>
-          <p className="muted small">Until sync arrives (next update), your closet lives only on this phone.</p>
+          <p className="muted small">Your closet is kept on this phone and backed up to your own Google Drive.</p>
         </section>
 
-        <section className="card stack-sm" aria-labelledby="s-drive">
-          <h2 id="s-drive">Google Drive connection</h2>
-          <p className="muted small">Checks that this phone can reach Drape's private folder in your Drive. Your closet is not uploaded yet.</p>
-          {!online ? (
-            <button type="button" className="btn" disabled={busy} onClick={() => void run('Connect', reconnect)}>
-              Connect to Google Drive
-            </button>
-          ) : !hasDriveAccess() ? (
-            <p className="error-text">Drive access was not allowed at sign-in. Sign out and in again, and keep the Drive box ticked.</p>
-          ) : (
-            <button
-              type="button"
-              className="btn"
-              disabled={busy}
-              onClick={() =>
-                void run('Drive test', async () => {
-                  await writeJson(`test-${Date.now()}.json`, { from: 'Drape settings', at: new Date().toISOString() })
-                  const files = await listFiles()
-                  setDriveFiles(files.length)
-                  toast('Drive connection works')
-                })
-              }
-            >
-              Test connection
-            </button>
-          )}
-          {driveFiles !== null && <p className="muted small">Files in Drape's Drive folder: {driveFiles}</p>}
-        </section>
+        <SyncCard />
 
         {samples > 0 && (
           <section className="card stack-sm" aria-labelledby="s-samples">
@@ -192,7 +162,7 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
           {confirm === null && (
             <div className="stack-sm">
               <button type="button" className="btn danger-ghost" onClick={() => setConfirm('wipe')} disabled={garments.length === 0}>
-                Delete my closet on this phone
+                Delete my whole closet
               </button>
               <button type="button" className="btn danger-ghost" onClick={() => setConfirm('remove')}>
                 Remove my account from this phone
@@ -201,7 +171,7 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
           )}
           {confirm === 'wipe' && (
             <div className="confirm" role="alert">
-              <p>Delete all {garments.length} pieces, photos, outfit history and feedback from this phone? This cannot be undone. Your Google Drive is not touched.</p>
+              <p>Delete all {garments.length} pieces, photos, trips, outfit history and feedback? This removes them from all your phones and from your Drive backup, and cannot be undone.</p>
               <div className="row-actions">
                 <button type="button" className="btn" onClick={() => setConfirm(null)}>
                   Cancel
@@ -212,9 +182,9 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
                   disabled={busy}
                   onClick={() =>
                     void run('Delete', async () => {
-                      await wipeLocalData()
+                      await deleteEverything()
                       setConfirm(null)
-                      toast('Your closet on this phone was deleted')
+                      toast('Your closet was deleted')
                     })
                   }
                 >
@@ -225,7 +195,7 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
           )}
           {confirm === 'remove' && (
             <div className="confirm" role="alert">
-              <p>Sign out and delete your closet, profile and history from this phone? Useful before handing the phone to someone else. Your Google Drive is not touched.</p>
+              <p>Sign out and remove your closet from this phone only? Useful before handing the phone to someone else. Your Drive backup stays, and your closet comes back when you sign in again. Anything not yet synced is lost.</p>
               <div className="row-actions">
                 <button type="button" className="btn" onClick={() => setConfirm(null)}>
                   Cancel
@@ -251,5 +221,64 @@ export function SettingsSheet({ onClose, onEditProfile }: Props) {
         <p className="muted small center">Drape {APP_VERSION}</p>
       </div>
     </Sheet>
+  )
+}
+
+function SyncCard() {
+  const toast = useToast()
+  const s = useSync()
+  const [busy, setBusy] = useState(false)
+  const when = s.lastSyncAt ? new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(s.lastSyncAt)) : null
+
+  async function go(fn: () => Promise<unknown>) {
+    setBusy(true)
+    try {
+      await fn()
+      await syncNow()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Sync failed.', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="card stack-sm" aria-labelledby="s-sync">
+      <h2 id="s-sync">Sync and backup</h2>
+      <p className="muted small">Your pieces, photos, profile, trips and history are copied to a private Drape folder in your Google Drive, so every phone you sign in on shows the same closet.</p>
+      <div className="kv">
+        <span>Status</span>
+        <b>
+          {s.status === 'syncing'
+            ? `Syncing${s.total ? ` ${s.done} of ${s.total}` : '…'}`
+            : s.status === 'paused'
+              ? 'Paused'
+              : s.status === 'offline'
+                ? 'Offline'
+                : s.status === 'error'
+                  ? 'Problem'
+                  : s.lastSyncAt
+                    ? 'Up to date'
+                    : 'Not synced yet'}
+        </b>
+      </div>
+      {when && (
+        <div className="kv">
+          <span>Last synced</span>
+          <b>{when}</b>
+        </div>
+      )}
+      {s.message && <p className={s.status === 'error' ? 'error-text' : 'muted small'}>{s.message}</p>}
+      {s.status === 'paused' ? (
+        <button type="button" className="btn primary" disabled={busy} onClick={() => void go(reconnect)}>
+          Reconnect to Google
+        </button>
+      ) : (
+        <button type="button" className="btn" disabled={busy || s.status === 'syncing'} onClick={() => void go(async () => {})}>
+          Sync now
+        </button>
+      )}
+      <p className="muted small">Google access lasts about an hour at a time. When it runs out, Drape pauses syncing until you tap Reconnect; nothing is lost.</p>
+    </section>
   )
 }

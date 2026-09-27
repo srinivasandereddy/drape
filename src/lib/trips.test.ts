@@ -155,7 +155,11 @@ describe('choosing the right place', () => {
   const c = (name: string, region: string, country: string): City => ({ name, region, country, latitude: 0, longitude: 0 })
   const goaResults = [c('Genoa', 'Liguria', 'Italy'), c('Panaji', 'Goa', 'India'), c('Margao', 'Goa', 'India')]
   it('prefers exact names, then regions, then the home country', () => {
-    expect(bestCityMatch('Goa', goaResults, 'India')?.name).toBe('Panaji')
+    // Goa is a state, not a city: Drape knows it and uses Panaji's weather, with or without a home city.
+    expect(bestCityMatch('Goa', goaResults, 'India')).toMatchObject({ name: 'Goa', country: 'India' })
+    expect(bestCityMatch('goa', [c('Genoa', 'Liguria', 'Italy'), c('Goa', 'Bicol', 'Philippines')])).toMatchObject({ country: 'India' })
+    expect(bestCityMatch('Bali', [])).toMatchObject({ country: 'Indonesia' })
+    expect(bestCityMatch('Springfield', [c('Springfield', 'Illinois', 'United States'), c('Springfield', 'Otago', 'New Zealand')], 'New Zealand')?.region).toBe('Otago')
     expect(bestCityMatch('Paris', [c('Paris', 'Texas', 'United States'), c('Paris', 'Île-de-France', 'France')])?.country).toBe('United States')
     expect(bestCityMatch('Paris', [c('Paris', 'Texas', 'United States'), c('Paris', 'Île-de-France', 'France')], 'France')?.country).toBe('France')
     expect(bestCityMatch('Hyderabad', [c('Hyderābād', 'Sindh', 'Pakistan'), c('Hyderabad', 'Telangana', 'India')], 'India')?.country).toBe('India')
